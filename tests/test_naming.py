@@ -18,7 +18,7 @@ def test_choose_title_model_uses_anthropic_when_openai_missing(monkeypatch) -> N
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
     monkeypatch.setattr("basemode_loom.naming.get_key", lambda provider: None)
 
-    assert choose_title_model() == "anthropic/claude-3-haiku-20240307"
+    assert choose_title_model() == "anthropic/claude-haiku-4-5-20251001"
 
 
 def test_slugify_keeps_short_readable_slug() -> None:

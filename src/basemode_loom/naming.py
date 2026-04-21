@@ -12,7 +12,7 @@ from basemode.usage import _count_tokens
 TITLE_TOKEN_THRESHOLD = 500
 _MAX_TITLE_CONTEXT_CHARS = 6000
 _OPENAI_TITLE_MODEL = "gpt-4o-mini"
-_ANTHROPIC_TITLE_MODEL = "anthropic/claude-3-haiku-20240307"
+_ANTHROPIC_TITLE_MODEL = "anthropic/claude-haiku-4-5-20251001"
 
 
 def choose_title_model() -> str | None:
