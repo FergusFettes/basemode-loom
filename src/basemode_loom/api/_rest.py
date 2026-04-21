@@ -107,9 +107,12 @@ def get_node(node_id: str, store: StoreDep) -> dict:
 @router.get("/models")
 def list_models() -> dict:
     try:
-        from basemode.models import list_models as _list_models  # type: ignore[import]
+        import basemode.models as bm  # type: ignore[import]
 
-        return {"models": _list_models(available_only=True)}
+        picker = getattr(bm, "list_model_picker_entries", None)
+        if callable(picker):
+            return {"models": picker(available_only=True)}
+        return {"models": bm.list_models(available_only=True)}
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 

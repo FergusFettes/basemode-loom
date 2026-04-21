@@ -35,6 +35,16 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
         "max_tokens": state.max_tokens,
         "temperature": state.temperature,
         "n_branches": state.n_branches,
+        "model_plan": [
+            {
+                "model": p.model,
+                "n_branches": p.n_branches,
+                "max_tokens": p.max_tokens,
+                "temperature": p.temperature,
+                "enabled": p.enabled,
+            }
+            for p in state.model_plan
+        ],
         "context": state.context,
         "root_id": state.root_id,
         "view_mode": state.view_mode,

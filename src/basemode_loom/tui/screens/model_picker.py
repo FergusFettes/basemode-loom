@@ -23,6 +23,8 @@ class ModelPickerScreen(ModalScreen[str | None]):
         super().__init__()
         self._current = current
         self._all_models: list[str] = []
+        self._label_to_model: dict[str, str] = {}
+        self._model_to_label: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         with Vertical():
@@ -31,12 +33,36 @@ class ModelPickerScreen(ModalScreen[str | None]):
             yield OptionList(id="model-list")
 
     def on_mount(self) -> None:
-        from basemode.models import list_models
+        models: list[str]
+        labels: list[str] = []
+        try:
+            from basemode.models import list_model_picker_entries
 
-        models = list_models(available_only=True) or [self._current]
+            entries = list_model_picker_entries(available_only=True, verified_only=True)
+            if not entries:
+                entries = list_model_picker_entries(available_only=True)
+            models = [str(e["model"]) for e in entries]
+            for e in entries:
+                mark = e.get("reliability") or " "
+                labels.append(f"{mark} {e['model']}")
+        except Exception:
+            from basemode.models import list_models
+
+            models = list_models(available_only=True)
+            labels = models[:]
+
+        models = models or [self._current]
         if self._current in models:
-            models.insert(0, models.pop(models.index(self._current)))
+            idx = models.index(self._current)
+            models.insert(0, models.pop(idx))
+            labels.insert(0, labels.pop(idx))
         self._all_models = models
+        self._label_to_model = {
+            label: model for label, model in zip(labels, models, strict=False)
+        }
+        self._model_to_label = {
+            model: label for label, model in zip(labels, models, strict=False)
+        }
         self._update_list("")
         self.query_one("#search", Input).focus()
 
@@ -48,10 +74,12 @@ class ModelPickerScreen(ModalScreen[str | None]):
         opt = self.query_one(OptionList)
         opt.clear_options()
         for m in filtered:
-            opt.add_option(m)
+            label = self._model_to_label.get(m, m)
+            opt.add_option(label)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        self.dismiss(str(event.option.prompt))
+        label = str(event.option.prompt)
+        self.dismiss(self._label_to_model.get(label, label))
 
     def action_dismiss_none(self) -> None:
         self.dismiss(None)

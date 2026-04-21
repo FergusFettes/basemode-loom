@@ -38,7 +38,9 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                     await websocket.send_json(
                         {
                             "type": "token",
+                            "model_idx": event.model_idx,
                             "branch_idx": event.branch_idx,
+                            "slot_idx": event.slot_idx,
                             "text": event.token,
                         }
                     )
@@ -111,6 +113,8 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 await websocket.send_json({"type": "state", "state": state_to_dict(state)})
 
             elif msg_type == "set_params":
+                if "model_plan" in data and isinstance(data["model_plan"], list):
+                    session.set_model_plan(data["model_plan"])
                 if "model" in data:
                     session.set_model(str(data["model"]))
                 if "max_tokens" in data:
