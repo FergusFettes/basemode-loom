@@ -564,12 +564,15 @@ def loom_view(
     from .session import LoomSession
     from .tui.app import BasemodeApp
 
+    from .config import load_config
+
     store = GenerationStore(db)
     start = _resolve_loom_source(store, source)
     if start is None:
         return
-    session = LoomSession(store, start.id)
-    BasemodeApp(session).run()
+    config = load_config()
+    session = LoomSession(store, start.id, defaults=config.effective_defaults(config.defaults.model))
+    BasemodeApp(session, config).run()
 
 
 def _resolve_loom_source(
@@ -993,9 +996,10 @@ def loom_serve(
     import uvicorn
 
     from .api import create_app
+    from .config import load_config
 
     store = GenerationStore(db)
-    web_app = create_app(store)
+    web_app = create_app(store, load_config())
     console.print(f"[dim]basemode-loom API → http://{host}:{port}/docs[/dim]")
     uvicorn.run(web_app, host=host, port=port)
 
