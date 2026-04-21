@@ -223,6 +223,24 @@ def test_set_n_branches_minimum_one(store):
     assert session.n_branches == 1
 
 
+def test_set_n_branches_applies_per_model_across_plan(store):
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.set_model_plan(
+        [
+            {"model": "m1", "n_branches": 1},
+            {"model": "m2", "n_branches": 1},
+            {"model": "m3", "n_branches": 1},
+        ]
+    )
+    session.set_n_branches(2)
+    assert session.branches_per_model == 2
+    assert session.n_branches == 6
+    assert [p.n_branches for p in session.model_plan] == [2, 2, 2]
+
+
 # --- apply_edit ---
 
 
@@ -492,3 +510,28 @@ async def test_generate_multiple_branches(store, monkeypatch):
         if isinstance(event, GenerationComplete):
             assert len(event.new_nodes) == 3
             assert call_count == 3
+
+
+@pytest.mark.asyncio
+async def test_generate_accepts_forced_openrouter_model(store, monkeypatch):
+    async def fake_continue(prefix, model, **kwargs):
+        assert model == "openrouter/moonshotai/kimi-k2.6"
+        yield "generated"
+
+    class _Strategy:
+        name = "system"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    monkeypatch.setattr(
+        "basemode_loom.session.detect_strategy", lambda model, _: _Strategy()
+    )
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.set_model("or:moonshotai/kimi-k2.6")
+    session.n_branches = 1
+
+    async for event in session.generate():
+        if isinstance(event, GenerationComplete):
+            assert event.new_nodes[0].model == "openrouter/moonshotai/kimi-k2.6"

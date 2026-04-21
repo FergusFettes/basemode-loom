@@ -231,11 +231,16 @@ class GenerationStore:
         return root
 
     def update_metadata(self, node_id: str, metadata: dict[str, Any]) -> Node:
-        node = self.get(node_id)
-        if node is None:
-            raise KeyError(f"unknown node: {node_id}")
-        merged = {**node.metadata, **metadata}
         with closing(self.connect()) as conn, conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT metadata_json FROM nodes WHERE id = ?",
+                (node_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown node: {node_id}")
+            current = json.loads(str(row["metadata_json"]))
+            merged = {**current, **metadata}
             conn.execute(
                 "UPDATE nodes SET metadata_json = ? WHERE id = ?",
                 (json.dumps(merged, sort_keys=True), node_id),

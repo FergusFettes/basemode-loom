@@ -11,13 +11,14 @@ import asyncio
 import difflib
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 from basemode.continue_ import continue_text
-from basemode.detect import detect_strategy, normalize_model
+from basemode.detect import detect_strategy
 from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
 
+from .model_resolver import resolve_model_id
 from .naming import generate_name, should_name
 from .store import GenerationStore, Node
 
@@ -104,6 +105,9 @@ class LoomSession:
 
         root_node = store.root(start_id)
         meta = root_node.metadata
+        config_meta = (
+            meta.get("config") if isinstance(meta.get("config"), dict) else {}
+        )
         saved_id = meta.get("last_node_id")
         if saved_id and store.get(saved_id) is not None:
             self._current_id: str = saved_id
@@ -113,15 +117,34 @@ class LoomSession:
         self._child_path: dict[str, int] = self._load_child_path(self._current_id)
         self._selected_idx: int = self._child_path.get(self._current_id, 0)
 
-        if isinstance(meta.get("model_plan"), list) and meta["model_plan"]:
-            self._model_plan = self._parse_model_plan(meta["model_plan"])
+        model_plan_raw = (
+            config_meta.get("model_plan")
+            if isinstance(config_meta.get("model_plan"), list)
+            else meta.get("model_plan")
+        )
+        if isinstance(model_plan_raw, list) and model_plan_raw:
+            self._model_plan = self._parse_model_plan(model_plan_raw)
         else:
             self._model_plan = [
                 ModelPlanEntry(
-                    model=str(meta.get("model", get_default_model() or "gpt-4o-mini")),
-                    max_tokens=max(50, min(int(meta.get("max_tokens", 200)), 8000)),
-                    temperature=float(meta.get("temperature", 0.9)),
-                    n_branches=max(1, int(meta.get("n_branches", 1))),
+                    model=str(
+                        config_meta.get(
+                            "model", meta.get("model", get_default_model() or "gpt-4o-mini")
+                        )
+                    ),
+                    max_tokens=max(
+                        50,
+                        min(
+                            int(config_meta.get("max_tokens", meta.get("max_tokens", 200))),
+                            8000,
+                        ),
+                    ),
+                    temperature=float(
+                        config_meta.get("temperature", meta.get("temperature", 0.9))
+                    ),
+                    n_branches=max(
+                        1, int(config_meta.get("n_branches", meta.get("n_branches", 1)))
+                    ),
                     enabled=True,
                 )
             ]
@@ -129,7 +152,9 @@ class LoomSession:
         self.rewind: bool = bool(meta.get("rewind", False))
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
-        self.show_model_names: bool = bool(meta.get("show_model_names", True))
+        self.show_model_names: bool = bool(
+            config_meta.get("show_model_names", meta.get("show_model_names", True))
+        )
 
     # --- State snapshot ---
 
@@ -158,7 +183,7 @@ class LoomSession:
             temperature=self.temperature,
             n_branches=self.n_branches,
             model_plan=self.model_plan,
-            context=root.metadata.get("context", ""),
+            context=self._current_context(root.metadata),
             root_id=root.id,
             view_mode=self.view_mode,
             hoisted_node_id=self._hoisted_id,
@@ -290,7 +315,7 @@ class LoomSession:
             try:
                 async for tok in continue_text(
                     prefix,
-                    plan.model,
+                    resolve_model_id(plan.model),
                     max_tokens=plan.max_tokens,
                     temperature=plan.temperature,
                     context=context,
@@ -357,7 +382,7 @@ class LoomSession:
         for global_idx, ((model_idx, branch_idx, plan), completion) in enumerate(
             zip(branch_plan, completions, strict=False)
         ):
-            resolved = normalize_model(plan.model)
+            resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
             normalized = normalize_completion_segment(prefix, completion)
             node = self._store.add_child(
@@ -504,8 +529,28 @@ class LoomSession:
         return new_node
 
     def update_context(self, context: str) -> None:
-        root = self._store.root(self._current_id)
-        self._store.update_metadata(root.id, {"context": context})
+        self.persist_config(context=context)
+
+    def apply_config_patch(self, config_patch: dict[str, Any]) -> None:
+        if "model_plan" in config_patch:
+            self.set_model_plan(config_patch["model_plan"])
+        if "model" in config_patch:
+            self.set_model(str(config_patch["model"]))
+        if "max_tokens" in config_patch:
+            self.set_max_tokens(int(config_patch["max_tokens"]))
+        if "temperature" in config_patch:
+            self.temperature = float(config_patch["temperature"])
+        if "n_branches" in config_patch:
+            self.set_n_branches(int(config_patch["n_branches"]))
+        if "show_model_names" in config_patch:
+            self.show_model_names = bool(config_patch["show_model_names"])
+        if "context" in config_patch:
+            self.update_context(str(config_patch["context"]))
+
+    def persist_config(self, *, context: str | None = None) -> None:
+        root_node = self._store.root(self._current_id)
+        persisted = self._build_persisted_config(context=context)
+        self._store.update_metadata(root_node.id, {"config": persisted, **persisted})
 
     # --- Params ---
 
@@ -536,14 +581,17 @@ class LoomSession:
     def set_n_branches(self, n: int) -> None:
         if not self._model_plan:
             return
-        p = self._model_plan[0]
-        self._model_plan[0] = ModelPlanEntry(
-            model=p.model,
-            n_branches=max(1, n),
-            max_tokens=p.max_tokens,
-            temperature=p.temperature,
-            enabled=p.enabled,
-        )
+        per_model = max(1, n)
+        self._model_plan = [
+            ModelPlanEntry(
+                model=p.model,
+                n_branches=per_model,
+                max_tokens=p.max_tokens,
+                temperature=p.temperature,
+                enabled=p.enabled,
+            )
+            for p in self._model_plan
+        ]
 
     def set_model_plan(self, model_plan: list[dict]) -> None:
         parsed = self._parse_model_plan(model_plan)
@@ -554,26 +602,15 @@ class LoomSession:
 
     def save(self) -> None:
         root_node = self._store.root(self._current_id)
+        persisted = self._build_persisted_config()
         self._store.set_active_node(self._current_id)
         self._store.update_metadata(
             root_node.id,
             {
                 "last_node_id": self._current_id,
-                "model": self.model,
-                "max_tokens": self.max_tokens,
-                "n_branches": self.n_branches,
-                "model_plan": [
-                    {
-                        "model": p.model,
-                        "n_branches": p.n_branches,
-                        "max_tokens": p.max_tokens,
-                        "temperature": p.temperature,
-                        "enabled": p.enabled,
-                    }
-                    for p in self._model_plan
-                ],
+                "config": persisted,
+                **persisted,
                 "rewind": self.rewind,
-                "show_model_names": self.show_model_names,
             },
         )
 
@@ -634,6 +671,36 @@ class LoomSession:
             )
         return parsed
 
+    def _current_context(self, root_metadata: dict[str, Any]) -> str:
+        cfg = root_metadata.get("config")
+        if isinstance(cfg, dict) and isinstance(cfg.get("context"), str):
+            return cfg["context"]
+        return str(root_metadata.get("context", ""))
+
+    def _build_persisted_config(self, *, context: str | None = None) -> dict[str, Any]:
+        root_node = self._store.root(self._current_id)
+        resolved_context = (
+            context if context is not None else self._current_context(root_node.metadata)
+        )
+        return {
+            "model": self.model,
+            "max_tokens": self.max_tokens,
+            "temperature": self.temperature,
+            "n_branches": self.branches_per_model,
+            "context": resolved_context,
+            "show_model_names": self.show_model_names,
+            "model_plan": [
+                {
+                    "model": p.model,
+                    "n_branches": p.n_branches,
+                    "max_tokens": p.max_tokens,
+                    "temperature": p.temperature,
+                    "enabled": p.enabled,
+                }
+                for p in self._model_plan
+            ],
+        }
+
     @property
     def model_plan(self) -> list[ModelPlanEntry]:
         return list(self._model_plan)
@@ -673,3 +740,12 @@ class LoomSession:
     @n_branches.setter
     def n_branches(self, value: int) -> None:
         self.set_n_branches(value)
+
+    @property
+    def branches_per_model(self) -> int:
+        if not self._model_plan:
+            return 1
+        for plan in self._model_plan:
+            if plan.enabled:
+                return plan.n_branches
+        return self._model_plan[0].n_branches

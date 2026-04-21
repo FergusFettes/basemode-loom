@@ -17,6 +17,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from .model_resolver import resolve_model_id
 from .store import AmbiguousNodeReference, GenerationStore, Node
 
 log = logging.getLogger(__name__)
@@ -803,9 +804,9 @@ def _run_loom_generation(
         model = get_default_model() or "gpt-4o-mini"
     prefix = prefix.rstrip("\n")
     if show_strategy:
-        from basemode.detect import detect_strategy, normalize_model
+        from basemode.detect import detect_strategy
 
-        strat = detect_strategy(normalize_model(model), strategy)
+        strat = detect_strategy(resolve_model_id(model), strategy)
         console.print(f"[dim]strategy: {strat.name}[/dim]")
     if n == 1:
         completion = asyncio.run(
@@ -862,10 +863,10 @@ def _save_loom_run(
     temperature: float,
     active_node_id: str | None,
 ) -> None:
-    from basemode.detect import detect_strategy, normalize_model
+    from basemode.detect import detect_strategy
     from basemode.healing import normalize_completion_segment
 
-    resolved = normalize_model(model or get_default_model() or "gpt-4o-mini")
+    resolved = resolve_model_id(model or get_default_model() or "gpt-4o-mini")
     strategy_name = detect_strategy(resolved, strategy).name
     completions = [
         normalize_completion_segment(prefix, completion) for completion in completions
@@ -919,10 +920,9 @@ def _print_usage_estimate(
     show_cost: bool,
     prompt_requests: int,
 ) -> None:
-    from basemode.detect import normalize_model
     from basemode.usage import estimate_usage, format_usd
 
-    resolved = normalize_model(model)
+    resolved = resolve_model_id(model)
     prompt, messages = _usage_prompt(resolved, prefix, strategy)
     usage = estimate_usage(
         resolved,

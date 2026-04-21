@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import math
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
@@ -14,6 +15,139 @@ from ..session import (
 )
 from ..store import GenerationStore
 from ._serialize import node_to_dict, state_to_dict
+
+
+def _is_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _is_number(value: Any) -> bool:
+    return (isinstance(value, int) or isinstance(value, float)) and not isinstance(
+        value, bool
+    )
+
+
+def _validate_model_plan(raw: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+    if not isinstance(raw, list) or not raw:
+        return None, "must be a non-empty list"
+    parsed: list[dict[str, Any]] = []
+    for idx, entry in enumerate(raw):
+        field = f"model_plan[{idx}]"
+        if not isinstance(entry, dict):
+            return None, f"{field} must be an object"
+        model = entry.get("model")
+        if not isinstance(model, str) or not model.strip():
+            return None, f"{field}.model must be a non-empty string"
+        n_branches = entry.get("n_branches", 1)
+        if not _is_int(n_branches) or n_branches < 1 or n_branches > 64:
+            return None, f"{field}.n_branches must be an integer between 1 and 64"
+        max_tokens = entry.get("max_tokens", 200)
+        if not _is_int(max_tokens) or max_tokens < 50 or max_tokens > 8000:
+            return None, f"{field}.max_tokens must be an integer between 50 and 8000"
+        temperature = entry.get("temperature", 0.9)
+        if (
+            not _is_number(temperature)
+            or math.isnan(float(temperature))
+            or float(temperature) < 0.0
+            or float(temperature) > 2.0
+        ):
+            return None, f"{field}.temperature must be a number between 0 and 2"
+        enabled = entry.get("enabled", True)
+        if not isinstance(enabled, bool):
+            return None, f"{field}.enabled must be a boolean"
+        parsed.append(
+            {
+                "model": model.strip(),
+                "n_branches": int(n_branches),
+                "max_tokens": int(max_tokens),
+                "temperature": float(temperature),
+                "enabled": enabled,
+            }
+        )
+    return parsed, None
+
+
+def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
+    allowed = {
+        "type",
+        "persist",
+        "model",
+        "max_tokens",
+        "temperature",
+        "n_branches",
+        "context",
+        "show_model_names",
+        "model_plan",
+    }
+    patch: dict[str, Any] = {}
+    errors: dict[str, str] = {}
+
+    for key in data:
+        if key not in allowed:
+            errors[key] = "unsupported field"
+
+    if "persist" in data:
+        if data["persist"] is not True:
+            errors["persist"] = "only persist=true is supported"
+
+    if "model" in data:
+        model = data["model"]
+        if not isinstance(model, str) or not model.strip():
+            errors["model"] = "must be a non-empty string"
+        else:
+            patch["model"] = model.strip()
+
+    if "max_tokens" in data:
+        value = data["max_tokens"]
+        if not _is_int(value) or value < 50 or value > 8000:
+            errors["max_tokens"] = "must be an integer between 50 and 8000"
+        else:
+            patch["max_tokens"] = value
+
+    if "temperature" in data:
+        value = data["temperature"]
+        if (
+            not _is_number(value)
+            or math.isnan(float(value))
+            or float(value) < 0.0
+            or float(value) > 2.0
+        ):
+            errors["temperature"] = "must be a number between 0 and 2"
+        else:
+            patch["temperature"] = float(value)
+
+    if "n_branches" in data:
+        value = data["n_branches"]
+        if not _is_int(value) or value < 1 or value > 64:
+            errors["n_branches"] = "must be an integer between 1 and 64"
+        else:
+            patch["n_branches"] = value
+
+    if "context" in data:
+        value = data["context"]
+        if not isinstance(value, str):
+            errors["context"] = "must be a string"
+        else:
+            patch["context"] = value
+
+    if "show_model_names" in data:
+        value = data["show_model_names"]
+        if not isinstance(value, bool):
+            errors["show_model_names"] = "must be a boolean"
+        else:
+            patch["show_model_names"] = value
+
+    if "model_plan" in data:
+        parsed_plan, error = _validate_model_plan(data["model_plan"])
+        if error is not None:
+            errors["model_plan"] = error
+        else:
+            patch["model_plan"] = parsed_plan
+
+    if not patch and "persist" in data and len(data) == 2 and not errors:
+        errors["set_params"] = "at least one config field is required"
+
+    return patch, errors
 
 
 async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
@@ -115,18 +249,19 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 )
 
             elif msg_type == "set_params":
-                if "model_plan" in data and isinstance(data["model_plan"], list):
-                    session.set_model_plan(data["model_plan"])
-                if "model" in data:
-                    session.set_model(str(data["model"]))
-                if "max_tokens" in data:
-                    session.set_max_tokens(int(data["max_tokens"]))
-                if "temperature" in data:
-                    session.temperature = float(data["temperature"])
-                if "n_branches" in data:
-                    session.set_n_branches(int(data["n_branches"]))
-                if "context" in data:
-                    session.update_context(str(data["context"]))
+                patch, field_errors = _validate_set_params(data)
+                if field_errors:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "invalid set_params",
+                            "fields": field_errors,
+                        }
+                    )
+                    continue
+                session.apply_config_patch(patch)
+                if "context" not in patch:
+                    session.persist_config()
                 await push_state()
 
             elif msg_type == "generate":

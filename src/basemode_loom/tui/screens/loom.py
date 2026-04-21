@@ -80,6 +80,7 @@ class LoomScreen(Screen):
         super().__init__()
         self.session = session
         self.keymap = config.keys
+        self.numeric_branch_shortcuts = bool(config.keys.numeric_branch_shortcuts)
         self._generating = False
         self._cursor_word_idx: int | None = None
 
@@ -106,7 +107,7 @@ class LoomScreen(Screen):
         else:
             info = (
                 f"{s._current_id[:8]} {short_model}  "
-                f"tokens:{s.max_tokens} branches:{s.n_branches}  "
+                f"tokens:{s.max_tokens} branches/model:{s.branches_per_model} total:{s.n_branches}  "
                 f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''} "
                 f"names:{'on' if s.show_model_names else 'off'}  "
                 "hjkl nav  space gen  1-9: N branches  S+space: 10tok  "
@@ -241,11 +242,11 @@ class LoomScreen(Screen):
         self._update_subtitle()
 
     def action_branches_up(self) -> None:
-        self.session.set_n_branches(self.session.n_branches + 1)
+        self.session.set_n_branches(self.session.branches_per_model + 1)
         self._update_subtitle()
 
     def action_branches_down(self) -> None:
-        self.session.set_n_branches(self.session.n_branches - 1)
+        self.session.set_n_branches(self.session.branches_per_model - 1)
         self._update_subtitle()
 
     def action_set_tokens(self) -> None:
@@ -263,12 +264,43 @@ class LoomScreen(Screen):
     def action_pick_model(self) -> None:
         from ..screens.model_picker import ModelPickerScreen
 
-        def apply(result: str | None) -> None:
-            if result is not None:
-                self.session.set_model(result)
-                self._update_subtitle()
+        def apply(result: list[str] | None) -> None:
+            if not result:
+                return
+            existing = {p.model: p for p in self.session.model_plan}
+            per_model_branches = self.session.branches_per_model
+            default_max_tokens = self.session.max_tokens
+            default_temperature = self.session.temperature
+            model_plan: list[dict] = []
+            for model in result:
+                plan = existing.get(model)
+                model_plan.append(
+                    {
+                        "model": model,
+                        "n_branches": (
+                            plan.n_branches if plan is not None else per_model_branches
+                        ),
+                        "max_tokens": (
+                            plan.max_tokens
+                            if plan is not None
+                            else default_max_tokens
+                        ),
+                        "temperature": (
+                            plan.temperature
+                            if plan is not None
+                            else default_temperature
+                        ),
+                        "enabled": True,
+                    }
+                )
+            self.session.set_model_plan(model_plan)
+            self.session.set_n_branches(per_model_branches)
+            self._update_subtitle()
 
-        self.app.push_screen(ModelPickerScreen(self.session.model), apply)
+        current_models = [p.model for p in self.session.model_plan if p.enabled]
+        if not current_models:
+            current_models = [self.session.model]
+        self.app.push_screen(ModelPickerScreen(current_models), apply)
 
     # --- Edit / context ---
 
@@ -369,7 +401,7 @@ class LoomScreen(Screen):
         char = event.character or ""
         if char == "H":
             event.stop()
-            self.action_toggle_hoist()
+            self.action_word_prev()
         elif char == "L":
             event.stop()
             self.action_word_next()
@@ -379,10 +411,14 @@ class LoomScreen(Screen):
         elif char == "B":
             event.stop()
             self.action_next_bookmark()
-        elif char.isdigit() and char != "0":
+        elif (
+            self.numeric_branch_shortcuts
+            and char.isdigit()
+            and char != "0"
+        ):
             event.stop()
             self._generate_worker(n_branches=int(char))
-        elif char in _SHIFT_DIGITS:
+        elif self.numeric_branch_shortcuts and char in _SHIFT_DIGITS:
             event.stop()
             self._generate_worker(n_branches=_SHIFT_DIGITS[char], max_tokens=10)
 
@@ -401,7 +437,7 @@ class LoomScreen(Screen):
                     self.session.truncate_selected_child(ends[self._cursor_word_idx])
             self._cursor_word_idx = None
 
-        old_n = self.session.n_branches
+        old_n = self.session.branches_per_model
         old_tok = self.session.max_tokens
         if n_branches is not None:
             self.session.set_n_branches(n_branches)

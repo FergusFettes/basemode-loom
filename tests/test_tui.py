@@ -72,13 +72,13 @@ async def test_info_bar_shows_tokens_and_branches(store, tree):
     async with app.run_test(headless=True) as pilot:
         info_bar = app.screen.query_one("#status-bar", Static)
         assert "tokens:200" in str(info_bar.render())
-        assert "branches:1" in str(info_bar.render())
+        assert "branches/model:1 total:1" in str(info_bar.render())
 
         await pilot.press("w")
         await pilot.press("d")
 
         assert "tokens:250" in str(info_bar.render())
-        assert "branches:2" in str(info_bar.render())
+        assert "branches/model:2 total:2" in str(info_bar.render())
 
 
 # --- Navigation ---
@@ -244,14 +244,14 @@ async def test_j_wraps_in_tree_view(store, tree):
 
 
 @pytest.mark.asyncio
-async def test_upper_h_toggles_hoist(store, tree):
+async def test_upper_z_toggles_hoist(store, tree):
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
-        await pilot.press("H")
+        await pilot.press("Z")
         assert session.get_state().hoisted_node_id == ab[0].id
-        await pilot.press("H")
+        await pilot.press("Z")
         assert session.get_state().hoisted_node_id is None
 
 
@@ -323,6 +323,24 @@ async def test_a_decreases_branches_min_one(store, tree):
         assert session.n_branches == 1
 
 
+@pytest.mark.asyncio
+async def test_d_updates_per_model_branches_across_model_plan(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    session.set_model_plan(
+        [
+            {"model": "m1", "n_branches": 1},
+            {"model": "m2", "n_branches": 1},
+            {"model": "m3", "n_branches": 1},
+        ]
+    )
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("d")
+        assert session.branches_per_model == 2
+        assert session.n_branches == 6
+
+
 # --- Modal screens ---
 
 
@@ -390,6 +408,35 @@ async def test_m_escape_dismisses(store, tree):
         await pilot.press("escape")
         assert session.model == original_model
         assert isinstance(app.screen, LoomScreen)
+
+
+@pytest.mark.asyncio
+async def test_m_space_selects_multiple_models_and_enter_applies(
+    store, tree, monkeypatch
+):
+    entries = [
+        {"model": "model-a", "reliability": "✓"},
+        {"model": "model-b", "reliability": "✓"},
+        {"model": "model-c", "reliability": "~"},
+    ]
+
+    def fake_picker_entries(*args, **kwargs):
+        return entries
+
+    monkeypatch.setattr(
+        "basemode.models.list_model_picker_entries", fake_picker_entries, raising=False
+    )
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("m")
+        await pilot.press("space")
+        await pilot.press("j")
+        await pilot.press("space")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert [p.model for p in session.model_plan] == ["model-a", "model-b"]
 
 
 @pytest.mark.asyncio

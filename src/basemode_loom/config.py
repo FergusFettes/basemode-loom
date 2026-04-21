@@ -9,6 +9,7 @@ Example config.toml:
     [keys]
     generate = "space"
     quick_generate = "shift+space"
+    numeric_branch_shortcuts = true
 
     [defaults]
     model = "gpt-4o-mini"
@@ -50,6 +51,7 @@ class KeyMap:
     # Generation / editing
     generate: str = "space"
     quick_generate: str = "shift+space"
+    numeric_branch_shortcuts: bool = True
     edit: str = "e"
     edit_context: str = "c"
     # Model / params

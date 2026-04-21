@@ -49,6 +49,7 @@ Useful commands:
 - TUI model picker is available via `m`.
 - Picker can consume verified model metadata from `basemode` when available.
 - Session state supports model-plan metadata for multi-model generation workflows.
+- Force OpenRouter passthrough for new/unknown IDs with `-m "or:vendor/model"` (or `openrouter:vendor/model`), e.g. `-m "or:moonshotai/kimi-k2.6"`.
 
 ## Storage
 
