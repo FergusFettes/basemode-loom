@@ -9,7 +9,7 @@ pip install basemode
 ## From source
 
 ```bash
-git clone https://github.com/fergus/basemode
+git clone https://github.com/FergusFettes/basemode
 cd basemode
 uv install
 ```

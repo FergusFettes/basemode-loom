@@ -9,7 +9,7 @@ pip install basemode-loom
 ## From source
 
 ```bash
-git clone https://github.com/fergus/basemode-loom
+git clone https://github.com/FergusFettes/basemode-loom
 cd basemode-loom
 uv install
 ```
