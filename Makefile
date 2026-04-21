@@ -1,4 +1,4 @@
-.PHONY: publish test test-core test-integration lint lint-core
+.PHONY: publish test test-core test-integration lint lint-core docs docs-serve
 
 publish:
 	rm -rf dist/
@@ -20,3 +20,9 @@ lint:
 
 lint-core:
 	uv run ruff check src tests && uv run ruff format --check src tests
+
+docs:
+	uv run mkdocs build
+
+docs-serve:
+	uv run mkdocs serve

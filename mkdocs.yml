@@ -1,0 +1,53 @@
+site_name: basemode-loom
+site_description: Persistent branching exploration for LLM continuations
+repo_url: https://github.com/fergus/basemode-loom
+repo_name: basemode-loom
+
+theme:
+  name: material
+  palette:
+    scheme: slate
+    primary: indigo
+    accent: indigo
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - content.code.copy
+    - toc.integrate
+
+plugins:
+  - search
+  - roamlinks
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - toc:
+      permalink: true
+
+nav:
+  - Home: Index.md
+  - Getting Started:
+    - Installation: getting-started/Installation.md
+    - Quickstart: getting-started/Quickstart.md
+  - Concepts:
+    - How It Works: concepts/How It Works.md
+    - Tree Structure: concepts/Tree Structure.md
+  - Usage:
+    - CLI Reference: usage/CLI Reference.md
+    - TUI Guide: usage/TUI Guide.md
+    - Python API: usage/Python API.md
+    - Web Server: usage/Web Server.md
+  - Reference:
+    - GenerationStore: reference/GenerationStore.md
+    - Node: reference/Node.md
+    - LoomSession: reference/LoomSession.md
+    - Display: reference/Display.md
