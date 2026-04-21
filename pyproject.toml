@@ -6,6 +6,7 @@ build-backend = "hatchling.build"
 name = "basemode-loom"
 version = "0.1.1"
 description = "Persistent branching exploration for basemode continuations"
+license = "Apache-2.0"
 requires-python = ">=3.11"
 dependencies = [
     "basemode>=0.1.2",
