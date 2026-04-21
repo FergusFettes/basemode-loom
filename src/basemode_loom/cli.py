@@ -571,7 +571,7 @@ def loom_view(
     if start is None:
         return
     config = load_config()
-    session = LoomSession(store, start.id, defaults=config.effective_defaults(config.defaults.model))
+    session = LoomSession(store, start.id)
     BasemodeApp(session, config).run()
 
 
