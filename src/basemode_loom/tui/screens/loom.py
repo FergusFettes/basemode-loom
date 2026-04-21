@@ -369,7 +369,7 @@ class LoomScreen(Screen):
         char = event.character or ""
         if char == "H":
             event.stop()
-            self.action_word_prev()
+            self.action_toggle_hoist()
         elif char == "L":
             event.stop()
             self.action_word_next()
