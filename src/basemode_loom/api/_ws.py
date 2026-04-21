@@ -110,7 +110,9 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 else:
                     await send_error(f"unknown direction: {direction!r}")
                     continue
-                await websocket.send_json({"type": "state", "state": state_to_dict(state)})
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
 
             elif msg_type == "set_params":
                 if "model_plan" in data and isinstance(data["model_plan"], list):
@@ -148,19 +150,27 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
 
             elif msg_type == "bookmark_next":
                 state = session.next_bookmark()
-                await websocket.send_json({"type": "state", "state": state_to_dict(state)})
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
 
             elif msg_type == "view_toggle":
                 state = session.toggle_tree_view()
-                await websocket.send_json({"type": "state", "state": state_to_dict(state)})
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
 
             elif msg_type == "hoist_toggle":
                 state = session.toggle_hoist()
-                await websocket.send_json({"type": "state", "state": state_to_dict(state)})
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
 
             elif msg_type == "model_names_toggle":
                 state = session.toggle_model_names()
-                await websocket.send_json({"type": "state", "state": state_to_dict(state)})
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
 
             else:
                 await send_error(f"unknown message type: {msg_type!r}")

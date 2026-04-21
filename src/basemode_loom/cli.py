@@ -561,10 +561,9 @@ def loom_view(
     """Interactive loom viewer. hjkl: nav. space: generate. q: quit."""
     if source is None and not sys.stdin.isatty():
         source = sys.stdin.read().rstrip("\n")
+    from .config import load_config
     from .session import LoomSession
     from .tui.app import BasemodeApp
-
-    from .config import load_config
 
     store = GenerationStore(db)
     start = _resolve_loom_source(store, source)

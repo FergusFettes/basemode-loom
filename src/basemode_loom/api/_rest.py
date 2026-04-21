@@ -141,5 +141,7 @@ def import_tree(body: dict, store: StoreDep) -> dict:
                 )
             )
         except KeyError as exc:
-            raise HTTPException(status_code=422, detail=f"missing field: {exc}") from exc
+            raise HTTPException(
+                status_code=422, detail=f"missing field: {exc}"
+            ) from exc
     return {"imported": store.import_nodes(nodes)}

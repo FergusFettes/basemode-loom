@@ -32,7 +32,6 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # KeyMap
 # ---------------------------------------------------------------------------
@@ -124,9 +123,15 @@ class Config:
             return self.defaults
         return GenerationDefaults(
             model=self.defaults.model,
-            max_tokens=mc.max_tokens if mc.max_tokens is not None else self.defaults.max_tokens,
-            temperature=mc.temperature if mc.temperature is not None else self.defaults.temperature,
-            n_branches=mc.n_branches if mc.n_branches is not None else self.defaults.n_branches,
+            max_tokens=mc.max_tokens
+            if mc.max_tokens is not None
+            else self.defaults.max_tokens,
+            temperature=mc.temperature
+            if mc.temperature is not None
+            else self.defaults.temperature,
+            n_branches=mc.n_branches
+            if mc.n_branches is not None
+            else self.defaults.n_branches,
             model_overrides=self.defaults.model_overrides,
         )
 
