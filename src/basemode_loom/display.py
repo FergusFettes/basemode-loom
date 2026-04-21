@@ -76,7 +76,9 @@ def word_wrap_inline(text: str, first_width: int, full_width: int) -> list[str]:
     return lines or [""]
 
 
-def build_loom_display(state: SessionState, width: int) -> list[DisplayLine]:
+def build_loom_display(
+    state: SessionState, width: int, child_cursor: int | None = None
+) -> list[DisplayLine]:
     """Build display lines for the loom tree view.
 
     Layout:
@@ -85,6 +87,9 @@ def build_loom_display(state: SessionState, width: int) -> list[DisplayLine]:
                         ->[sibling 1 (dim)]
                         ->[sibling 2 (dim)]
       [continuation text from selected child's subtree (normal)]
+
+    When child_cursor is set, the selected child text is split at that character
+    position: the kept part renders bold, the tail renders dim.
     """
     parent_lines = wrap_text(state.full_text, width)
 
@@ -98,7 +103,7 @@ def build_loom_display(state: SessionState, width: int) -> list[DisplayLine]:
         lines.append(DisplayLine(last_line))
         last_line = ""
 
-    lines += _render_siblings(state, last_line, width)
+    lines += _render_siblings(state, last_line, width, child_cursor=child_cursor)
     return lines
 
 
@@ -250,7 +255,10 @@ def _flatten_preview(text: str, width: int) -> str:
 
 
 def _render_siblings(
-    state: SessionState, last_line: str, width: int
+    state: SessionState,
+    last_line: str,
+    width: int,
+    child_cursor: int | None = None,
 ) -> list[DisplayLine]:
     children = state.children
     selected_idx = state.selected_child_idx
@@ -269,13 +277,23 @@ def _render_siblings(
 
     lines: list[DisplayLine] = []
     selected = children[selected_idx]
-
-    sel_seg = selected.text + marker(selected)
-    sel_lines = word_wrap_inline(sel_seg, available, width)
     row_prefix = (last_line + ARROW) if last_line else ARROW
-    lines.append(DisplayLine(row_prefix + sel_lines[0], "bold"))
-    for sl in sel_lines[1:]:
-        lines.append(DisplayLine(sl, "bold"))
+
+    if child_cursor is not None and 0 < child_cursor < len(selected.text):
+        kept = selected.text[:child_cursor]
+        tail = selected.text[child_cursor:]
+        sel_lines = word_wrap_inline(kept + marker(selected), available, width)
+        lines.append(DisplayLine(row_prefix + sel_lines[0], "bold"))
+        for sl in sel_lines[1:]:
+            lines.append(DisplayLine(sl, "bold"))
+        for tl in wrap_text(tail, width):
+            lines.append(DisplayLine(tl, "dim"))
+    else:
+        sel_seg = selected.text + marker(selected)
+        sel_lines = word_wrap_inline(sel_seg, available, width)
+        lines.append(DisplayLine(row_prefix + sel_lines[0], "bold"))
+        for sl in sel_lines[1:]:
+            lines.append(DisplayLine(sl, "bold"))
 
     for i, child in enumerate(children):
         if i == selected_idx:

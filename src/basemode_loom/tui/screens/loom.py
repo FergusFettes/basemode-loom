@@ -114,17 +114,18 @@ class LoomScreen(Screen):
         self._update_subtitle()
 
     def _refresh_cursor(self) -> None:
-        """Redraw with current cursor position without resetting session state."""
+        """Redraw with current cursor position within the selected child's text."""
         state = self.session.get_state()
         loom_view = self.query_one(LoomView)
-        if self._cursor_word_idx is not None:
-            ends = _word_ends(state.full_text)
+        if self._cursor_word_idx is not None and state.children:
+            child_text = state.children[state.selected_child_idx].text
+            ends = _word_ends(child_text)
             if ends and self._cursor_word_idx < len(ends):
-                loom_view.set_cursor(state.full_text, ends[self._cursor_word_idx])
+                loom_view.set_cursor(ends[self._cursor_word_idx])
             else:
-                loom_view.set_cursor(state.full_text, None)
+                loom_view.set_cursor(None)
         else:
-            loom_view.set_cursor(state.full_text, None)
+            loom_view.set_cursor(None)
         self._update_subtitle()
 
     # --- Navigation ---
@@ -163,9 +164,14 @@ class LoomScreen(Screen):
 
     # --- Word cursor ---
 
+    def _child_word_ends(self) -> list[int]:
+        state = self.session.get_state()
+        if not state.children:
+            return []
+        return _word_ends(state.children[state.selected_child_idx].text)
+
     def action_word_prev(self) -> None:
-        full_text = self.session.get_state().full_text
-        ends = _word_ends(full_text)
+        ends = self._child_word_ends()
         if not ends:
             return
         if self._cursor_word_idx is None:
@@ -180,17 +186,16 @@ class LoomScreen(Screen):
     def action_word_next(self) -> None:
         if self._cursor_word_idx is None:
             return
-        full_text = self.session.get_state().full_text
-        ends = _word_ends(full_text)
+        ends = self._child_word_ends()
         if not ends:
             return
         new_idx = self._cursor_word_idx + 1
         if new_idx >= len(ends) - 1:
             self._cursor_word_idx = None
-            self.query_one(LoomView).set_cursor(full_text, None)
+            self.query_one(LoomView).set_cursor(None)
         else:
             self._cursor_word_idx = new_idx
-            self.query_one(LoomView).set_cursor(full_text, ends[new_idx])
+            self.query_one(LoomView).set_cursor(ends[new_idx])
         self._update_subtitle()
 
     # --- View ---
@@ -331,8 +336,7 @@ class LoomScreen(Screen):
             self.session.cancel()
         elif self._cursor_word_idx is not None:
             self._cursor_word_idx = None
-            full_text = self.session.get_state().full_text
-            self.query_one(LoomView).set_cursor(full_text, None)
+            self.query_one(LoomView).set_cursor(None)
             self._update_subtitle()
         else:
             self.app.exit(message=self._quit_message())
@@ -373,10 +377,11 @@ class LoomScreen(Screen):
     ) -> None:
         if self._cursor_word_idx is not None:
             state = self.session.get_state()
-            ends = _word_ends(state.full_text)
-            if ends and self._cursor_word_idx < len(ends):
-                truncated = state.full_text[: ends[self._cursor_word_idx]]
-                self.session.apply_edit(state.full_text, truncated)
+            if state.children:
+                child_text = state.children[state.selected_child_idx].text
+                ends = _word_ends(child_text)
+                if ends and self._cursor_word_idx < len(ends):
+                    self.session.truncate_selected_child(ends[self._cursor_word_idx])
             self._cursor_word_idx = None
 
         old_n = self.session.n_branches
@@ -395,7 +400,7 @@ class LoomScreen(Screen):
         try:
             async for event in self.session.generate():
                 match event:
-                    case TokenReceived(branch_idx=idx, token=tok):
+                    case TokenReceived(slot_idx=idx, token=tok):
                         stream_view.add_token(idx, tok)
                     case GenerationComplete():
                         pass

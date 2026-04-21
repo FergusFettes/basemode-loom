@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import dataclasses
-
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -39,7 +37,6 @@ class LoomView(VerticalScroll):
     def __init__(self, **kwargs: object) -> None:
         super().__init__(**kwargs)
         self._cursor_char_end: int | None = None
-        self._cursor_full_text: str = ""
 
     def compose(self) -> ComposeResult:
         yield Static("", id="loom-content")
@@ -49,9 +46,8 @@ class LoomView(VerticalScroll):
         self._cursor_char_end = None
         self._render_state()
 
-    def set_cursor(self, full_text: str, char_end: int | None) -> None:
-        """Set or clear the word cursor. When set, renders text truncated at char_end."""
-        self._cursor_full_text = full_text
+    def set_cursor(self, char_end: int | None) -> None:
+        """Set or clear the word cursor within the selected child's text."""
         self._cursor_char_end = char_end
         self._render_state()
 
@@ -59,16 +55,11 @@ class LoomView(VerticalScroll):
         state = getattr(self, "_state", None)
         if state is None:
             return
-
-        if self._cursor_char_end is not None:
-            truncated = self._cursor_full_text[: self._cursor_char_end] + "█"
-            state = dataclasses.replace(state, full_text=truncated, children=[])
-
         width = self._content_width()
         if state.view_mode == "tree":
             lines = build_tree_display(state, width)
         else:
-            lines = build_loom_display(state, width)
+            lines = build_loom_display(state, width, child_cursor=self._cursor_char_end)
         result = Text(no_wrap=True, overflow="fold")
         for line in lines:
             text = Text(line.text + "\n", style=_STYLES[line.style])

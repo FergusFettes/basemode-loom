@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from basemode.continue_ import continue_text
@@ -18,9 +18,18 @@ from basemode.detect import detect_strategy, normalize_model
 from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
 
-from .config import GenerationDefaults
 from .naming import generate_name, should_name
 from .store import GenerationStore, Node
+
+
+@dataclass(frozen=True)
+class ModelPlanEntry:
+    model: str
+    n_branches: int
+    max_tokens: int
+    temperature: float
+    enabled: bool = True
+
 
 # ---------------------------------------------------------------------------
 # Events emitted during generate()
@@ -29,7 +38,9 @@ from .store import GenerationStore, Node
 
 @dataclass(frozen=True)
 class TokenReceived:
+    model_idx: int
     branch_idx: int
+    slot_idx: int
     token: str
 
 
@@ -78,6 +89,7 @@ class SessionState:
     hoisted_node_id: str | None = None
     tree_nodes: list[Node] | None = None
     show_model_names: bool = True
+    model_plan: list[ModelPlanEntry] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -86,17 +98,9 @@ class SessionState:
 
 
 class LoomSession:
-    def __init__(
-        self,
-        store: GenerationStore,
-        start_id: str,
-        defaults: GenerationDefaults | None = None,
-    ) -> None:
+    def __init__(self, store: GenerationStore, start_id: str) -> None:
         self._store = store
         self._cancelled = asyncio.Event()
-
-        if defaults is None:
-            defaults = GenerationDefaults()
 
         root_node = store.root(start_id)
         meta = root_node.metadata
@@ -109,10 +113,19 @@ class LoomSession:
         self._child_path: dict[str, int] = self._load_child_path(self._current_id)
         self._selected_idx: int = self._child_path.get(self._current_id, 0)
 
-        self.model: str = str(meta.get("model", get_default_model() or defaults.model))
-        self.max_tokens: int = int(meta.get("max_tokens", defaults.max_tokens))
-        self.temperature: float = float(meta.get("temperature", defaults.temperature))
-        self.n_branches: int = int(meta.get("n_branches", defaults.n_branches))
+        if isinstance(meta.get("model_plan"), list) and meta["model_plan"]:
+            self._model_plan = self._parse_model_plan(meta["model_plan"])
+        else:
+            self._model_plan = [
+                ModelPlanEntry(
+                    model=str(meta.get("model", get_default_model() or "gpt-4o-mini")),
+                    max_tokens=max(50, min(int(meta.get("max_tokens", 200)), 8000)),
+                    temperature=float(meta.get("temperature", 0.9)),
+                    n_branches=max(1, int(meta.get("n_branches", 1))),
+                    enabled=True,
+                )
+            ]
+
         self.rewind: bool = bool(meta.get("rewind", False))
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
@@ -144,6 +157,7 @@ class LoomSession:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             n_branches=self.n_branches,
+            model_plan=self.model_plan,
             context=root.metadata.get("context", ""),
             root_id=root.id,
             view_mode=self.view_mode,
@@ -250,39 +264,53 @@ class LoomSession:
         state = self.get_state()
         prefix = state.full_text
         context = state.context
-        n = self.n_branches
-        model = self.model
-        max_tokens = self.max_tokens
-        temperature = self.temperature
 
-        buffers: list[list[str]] = [[] for _ in range(n)]
+        branch_plan: list[tuple[int, int, ModelPlanEntry]] = []
+        for model_idx, plan in enumerate(self._model_plan):
+            if not plan.enabled:
+                continue
+            for branch_idx in range(plan.n_branches):
+                branch_plan.append((model_idx, branch_idx, plan))
+
+        if not branch_plan:
+            yield GenerationError(error=RuntimeError("no enabled model branches"))
+            return
+
+        buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
         error: Exception | None = None
         cancelled = False
 
-        queue: asyncio.Queue[tuple[int, str] | Exception | None] = asyncio.Queue()
+        queue: asyncio.Queue[tuple[int, int, int, str] | Exception | None] = (
+            asyncio.Queue()
+        )
 
-        async def run_branch(idx: int) -> None:
+        async def run_branch(
+            slot_idx: int, model_idx: int, branch_idx: int, plan: ModelPlanEntry
+        ) -> None:
             try:
                 async for tok in continue_text(
                     prefix,
-                    model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
+                    plan.model,
+                    max_tokens=plan.max_tokens,
+                    temperature=plan.temperature,
                     context=context,
                     rewind=self.rewind,
                 ):
                     if self._cancelled.is_set():
                         break
-                    await queue.put((idx, tok))
+                    await queue.put((slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
                 await queue.put(exc)
             finally:
                 await queue.put(None)
 
-        tasks = [asyncio.create_task(run_branch(i)) for i in range(n)]
+        tasks = [
+            asyncio.create_task(run_branch(slot_idx, model_idx, branch_idx, plan))
+            for slot_idx, (model_idx, branch_idx, plan) in enumerate(branch_plan)
+        ]
         try:
             done = 0
-            while done < n:
+            while done < len(tasks):
                 item = await queue.get()
                 if item is None:
                     done += 1
@@ -290,9 +318,14 @@ class LoomSession:
                     error = item
                     done += 1
                 else:
-                    idx, tok = item
-                    buffers[idx].append(tok)
-                    yield TokenReceived(branch_idx=idx, token=tok)
+                    slot_idx, model_idx, branch_idx, tok = item
+                    buffers[slot_idx].append(tok)
+                    yield TokenReceived(
+                        model_idx=model_idx,
+                        branch_idx=branch_idx,
+                        slot_idx=slot_idx,
+                        token=tok,
+                    )
 
                 if self._cancelled.is_set():
                     cancelled = True
@@ -311,29 +344,41 @@ class LoomSession:
             return
 
         completions = ["".join(b) for b in buffers]
-        new_nodes = self._save_completions(prefix, completions)
+        new_nodes = self._save_completions(prefix, branch_plan, completions)
         yield GenerationComplete(completions=completions, new_nodes=new_nodes)
 
-    def _save_completions(self, prefix: str, completions: list[str]) -> list[Node]:
-        resolved = normalize_model(self.model)
-        strategy_name = detect_strategy(resolved, None).name
-        completions = [
-            normalize_completion_segment(prefix, completion)
-            for completion in completions
-        ]
-        _parent, new_children = self._store.save_continuations(
-            prefix,
-            completions,
-            model=resolved,
-            strategy=strategy_name,
-            max_tokens=self.max_tokens,
-            temperature=self.temperature,
-            parent_id=self._current_id,
-        )
+    def _save_completions(
+        self,
+        prefix: str,
+        branch_plan: list[tuple[int, int, ModelPlanEntry]],
+        completions: list[str],
+    ) -> list[Node]:
+        new_children: list[Node] = []
+        for global_idx, ((model_idx, branch_idx, plan), completion) in enumerate(
+            zip(branch_plan, completions, strict=False)
+        ):
+            resolved = normalize_model(plan.model)
+            strategy_name = detect_strategy(resolved, None).name
+            normalized = normalize_completion_segment(prefix, completion)
+            node = self._store.add_child(
+                self._current_id,
+                normalized,
+                model=resolved,
+                strategy=strategy_name,
+                max_tokens=plan.max_tokens,
+                temperature=plan.temperature,
+                branch_index=global_idx,
+                metadata={
+                    "model_idx": model_idx,
+                    "model_branch_index": branch_idx,
+                },
+            )
+            new_children.append(node)
+
         if new_children:
             self._child_path[self._current_id] = len(new_children) - 1
             self._store.set_checked_out_child(self._current_id, new_children[-1].id)
-            if self.n_branches == 1:
+            if len(new_children) == 1:
                 self._current_id = new_children[0].id
                 self._selected_idx = 0
         self._maybe_name_tree(new_children)
@@ -430,6 +475,34 @@ class LoomSession:
             self._child_path = self._load_child_path(self._current_id)
         return last_new_node
 
+    def truncate_selected_child(self, char_pos: int) -> Node | None:
+        """Create a sibling with the selected child's text truncated at char_pos and navigate into it."""
+        children = self._store.children(self._current_id)
+        if not children:
+            return None
+        selected = children[min(self._selected_idx, len(children) - 1)]
+        truncated = selected.text[:char_pos]
+        if not truncated or truncated == selected.text:
+            return None
+        new_node = self._store.add_child(
+            self._current_id,
+            truncated,
+            model=selected.model or "manual",
+            strategy=selected.strategy or "manual",
+            max_tokens=selected.max_tokens or self.max_tokens,
+            temperature=selected.temperature or self.temperature,
+        )
+        siblings = self._store.children(self._current_id)
+        for i, c in enumerate(siblings):
+            if c.id == new_node.id:
+                self._selected_idx = i
+                break
+        self._store.set_checked_out_child(self._current_id, new_node.id)
+        self._child_path[self._current_id] = self._selected_idx
+        self._current_id = new_node.id
+        self._selected_idx = 0
+        return new_node
+
     def update_context(self, context: str) -> None:
         root = self._store.root(self._current_id)
         self._store.update_metadata(root.id, {"context": context})
@@ -437,13 +510,45 @@ class LoomSession:
     # --- Params ---
 
     def set_model(self, model: str) -> None:
-        self.model = model
+        if not self._model_plan:
+            return
+        p = self._model_plan[0]
+        self._model_plan[0] = ModelPlanEntry(
+            model=model,
+            n_branches=p.n_branches,
+            max_tokens=p.max_tokens,
+            temperature=p.temperature,
+            enabled=p.enabled,
+        )
 
     def set_max_tokens(self, max_tokens: int) -> None:
-        self.max_tokens = max(50, min(max_tokens, 8000))
+        if not self._model_plan:
+            return
+        p = self._model_plan[0]
+        self._model_plan[0] = ModelPlanEntry(
+            model=p.model,
+            n_branches=p.n_branches,
+            max_tokens=max(50, min(max_tokens, 8000)),
+            temperature=p.temperature,
+            enabled=p.enabled,
+        )
 
     def set_n_branches(self, n: int) -> None:
-        self.n_branches = max(1, n)
+        if not self._model_plan:
+            return
+        p = self._model_plan[0]
+        self._model_plan[0] = ModelPlanEntry(
+            model=p.model,
+            n_branches=max(1, n),
+            max_tokens=p.max_tokens,
+            temperature=p.temperature,
+            enabled=p.enabled,
+        )
+
+    def set_model_plan(self, model_plan: list[dict]) -> None:
+        parsed = self._parse_model_plan(model_plan)
+        if parsed:
+            self._model_plan = parsed
 
     # --- Persistence ---
 
@@ -457,6 +562,16 @@ class LoomSession:
                 "model": self.model,
                 "max_tokens": self.max_tokens,
                 "n_branches": self.n_branches,
+                "model_plan": [
+                    {
+                        "model": p.model,
+                        "n_branches": p.n_branches,
+                        "max_tokens": p.max_tokens,
+                        "temperature": p.temperature,
+                        "enabled": p.enabled,
+                    }
+                    for p in self._model_plan
+                ],
                 "rewind": self.rewind,
                 "show_model_names": self.show_model_names,
             },
@@ -501,3 +616,60 @@ class LoomSession:
         self._current_id = node.id
         self._child_path.update(self._load_child_path(self._current_id))
         self._selected_idx = self._child_path.get(self._current_id, 0)
+
+    def _parse_model_plan(self, raw_plan: list[dict]) -> list[ModelPlanEntry]:
+        parsed: list[ModelPlanEntry] = []
+        for raw in raw_plan:
+            model = str(raw.get("model", "")).strip()
+            if not model:
+                continue
+            parsed.append(
+                ModelPlanEntry(
+                    model=model,
+                    n_branches=max(1, int(raw.get("n_branches", 1))),
+                    max_tokens=max(50, min(int(raw.get("max_tokens", 200)), 8000)),
+                    temperature=float(raw.get("temperature", 0.9)),
+                    enabled=bool(raw.get("enabled", True)),
+                )
+            )
+        return parsed
+
+    @property
+    def model_plan(self) -> list[ModelPlanEntry]:
+        return list(self._model_plan)
+
+    @property
+    def model(self) -> str:
+        for plan in self._model_plan:
+            if plan.enabled:
+                return plan.model
+        return self._model_plan[0].model if self._model_plan else "gpt-4o-mini"
+
+    @property
+    def max_tokens(self) -> int:
+        return self._model_plan[0].max_tokens if self._model_plan else 200
+
+    @property
+    def temperature(self) -> float:
+        return self._model_plan[0].temperature if self._model_plan else 0.9
+
+    @temperature.setter
+    def temperature(self, value: float) -> None:
+        if not self._model_plan:
+            return
+        p = self._model_plan[0]
+        self._model_plan[0] = ModelPlanEntry(
+            model=p.model,
+            n_branches=p.n_branches,
+            max_tokens=p.max_tokens,
+            temperature=value,
+            enabled=p.enabled,
+        )
+
+    @property
+    def n_branches(self) -> int:
+        return sum(p.n_branches for p in self._model_plan if p.enabled)
+
+    @n_branches.setter
+    def n_branches(self, value: int) -> None:
+        self.set_n_branches(value)
