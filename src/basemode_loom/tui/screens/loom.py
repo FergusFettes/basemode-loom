@@ -362,7 +362,10 @@ class LoomScreen(Screen):
         if self._generating:
             return
         char = event.character or ""
-        if char.isdigit() and char != "0":
+        if char == "H":
+            event.stop()
+            self.action_toggle_hoist()
+        elif char.isdigit() and char != "0":
             event.stop()
             self._generate_worker(n_branches=int(char))
         elif char in _SHIFT_DIGITS:
