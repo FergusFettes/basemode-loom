@@ -35,6 +35,7 @@ markdown_extensions:
 
 nav:
   - Home: Index.md
+  - Agent Quickstart: Agent Quickstart.md
   - Getting Started:
     - Installation: getting-started/Installation.md
     - Quickstart: getting-started/Quickstart.md
@@ -51,3 +52,19 @@ nav:
     - Node: reference/Node.md
     - LoomSession: reference/LoomSession.md
     - Display: reference/Display.md
+  - basemode:
+    - Overview: basemode/basemode Overview.md
+    - Getting Started:
+      - Installation: basemode/basemode Installation.md
+      - Quickstart: basemode/basemode Quickstart.md
+    - Concepts:
+      - Strategies: basemode/basemode Strategies.md
+      - Model Normalization: basemode/basemode Model Normalization.md
+    - Usage:
+      - CLI Reference: basemode/basemode CLI Reference.md
+      - Python API: basemode/basemode Python API.md
+    - Reference:
+      - continue_text: basemode/continue_text.md
+      - branch_text: basemode/branch_text.md
+      - GenerationParams: basemode/GenerationParams.md
+      - ContinuationStrategy: basemode/ContinuationStrategy.md
