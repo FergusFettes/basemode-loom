@@ -52,6 +52,8 @@ class ModelPickerScreen(ModalScreen[str | None]):
             labels = models[:]
 
         models = models or [self._current]
+        if not labels:
+            labels = models[:]
         if self._current in models:
             idx = models.index(self._current)
             models.insert(0, models.pop(idx))
