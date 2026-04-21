@@ -4,7 +4,7 @@
 
 The problem it solves: modern LLMs are chat-tuned and respond to continuation prompts with preambles like *"Sure! Here's a continuation:"* rather than just writing the next words. basemode wraps any LLM with provider-specific coercion strategies that force it to output raw continuation text — no acknowledgment, no formatting, no wrapper.
 
-It is the model layer underneath [[Index]] (basemode-loom). loom handles trees, storage, and navigation; basemode handles the actual generation.
+It is the model layer underneath [[index]] (basemode-loom). loom handles trees, storage, and navigation; basemode handles the actual generation.
 
 ## What it provides
 

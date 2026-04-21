@@ -34,7 +34,7 @@ markdown_extensions:
       permalink: true
 
 nav:
-  - Home: Index.md
+  - Home: index.md
   - Agent Quickstart: Agent Quickstart.md
   - Getting Started:
     - Installation: getting-started/Installation.md
