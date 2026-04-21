@@ -369,7 +369,16 @@ class LoomScreen(Screen):
         char = event.character or ""
         if char == "H":
             event.stop()
+            self.action_word_prev()
+        elif char == "L":
+            event.stop()
+            self.action_word_next()
+        elif char == "Z":
+            event.stop()
             self.action_toggle_hoist()
+        elif char == "B":
+            event.stop()
+            self.action_next_bookmark()
         elif char.isdigit() and char != "0":
             event.stop()
             self._generate_worker(n_branches=int(char))
