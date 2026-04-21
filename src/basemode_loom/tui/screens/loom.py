@@ -26,8 +26,15 @@ from ..widgets.stream_view import StreamView
 
 # Maps shift+number characters (US layout) to their digit values.
 _SHIFT_DIGITS: dict[str, int] = {
-    "!": 1, "@": 2, "#": 3, "$": 4, "%": 5,
-    "^": 6, "&": 7, "*": 8, "(": 9,
+    "!": 1,
+    "@": 2,
+    "#": 3,
+    "$": 4,
+    "%": 5,
+    "^": 6,
+    "&": 7,
+    "*": 8,
+    "(": 9,
 }
 
 
@@ -133,9 +140,7 @@ class LoomScreen(Screen):
     def action_nav_child(self) -> None:
         state = self.session.get_state()
         if not state.children:
-            self.notify(
-                "No continuations yet — press space to generate", timeout=2
-            )
+            self.notify("No continuations yet — press space to generate", timeout=2)
             return
         self.session.navigate_child()
         self._refresh()
