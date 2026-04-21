@@ -981,6 +981,25 @@ def _usage_prompt(
     return prefix, None
 
 
+@app.command("serve")
+def loom_serve(
+    host: Annotated[str, typer.Option("--host", help="Bind host")] = "127.0.0.1",
+    port: Annotated[int, typer.Option("--port", help="Bind port")] = 8000,
+    db: Annotated[
+        Path | None, typer.Option("--db", help="SQLite generation database path")
+    ] = None,
+) -> None:
+    """Start the basemode-loom web API server."""
+    import uvicorn
+
+    from .api import create_app
+
+    store = GenerationStore(db)
+    web_app = create_app(store)
+    console.print(f"[dim]basemode-loom API → http://{host}:{port}/docs[/dim]")
+    uvicorn.run(web_app, host=host, port=port)
+
+
 def _preview(text: str, limit: int = 80) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 3] + "..."

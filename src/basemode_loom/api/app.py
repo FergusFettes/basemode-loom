@@ -1,0 +1,33 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from typing import AsyncGenerator
+
+from fastapi import FastAPI, WebSocket
+from fastapi.middleware.cors import CORSMiddleware
+
+from ..store import GenerationStore
+from ._rest import router
+from ._ws import session_ws
+
+
+def create_app(store: GenerationStore) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        app.state.store = store
+        yield
+
+    app = FastAPI(title="basemode-loom", version="0.1.0", lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.include_router(router)
+
+    @app.websocket("/ws/session")
+    async def ws_session(websocket: WebSocket) -> None:
+        await session_ws(websocket, websocket.app.state.store)
+
+    return app
