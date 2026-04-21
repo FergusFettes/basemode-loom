@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import dataclasses
+
 from rich.style import Style
 from rich.text import Text
 from textual import events
@@ -34,17 +36,34 @@ class LoomView(VerticalScroll):
     }
     """
 
+    def __init__(self, **kwargs: object) -> None:
+        super().__init__(**kwargs)
+        self._cursor_char_end: int | None = None
+        self._cursor_full_text: str = ""
+
     def compose(self) -> ComposeResult:
         yield Static("", id="loom-content")
 
     def update_state(self, state: SessionState) -> None:
         self._state = state
+        self._cursor_char_end = None
+        self._render_state()
+
+    def set_cursor(self, full_text: str, char_end: int | None) -> None:
+        """Set or clear the word cursor. When set, renders text truncated at char_end."""
+        self._cursor_full_text = full_text
+        self._cursor_char_end = char_end
         self._render_state()
 
     def _render_state(self) -> None:
         state = getattr(self, "_state", None)
         if state is None:
             return
+
+        if self._cursor_char_end is not None:
+            truncated = self._cursor_full_text[: self._cursor_char_end] + "█"
+            state = dataclasses.replace(state, full_text=truncated, children=[])
+
         width = self._content_width()
         if state.view_mode == "tree":
             lines = build_tree_display(state, width)

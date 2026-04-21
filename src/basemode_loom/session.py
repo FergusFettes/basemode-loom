@@ -18,6 +18,7 @@ from basemode.detect import detect_strategy, normalize_model
 from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
 
+from .config import GenerationDefaults
 from .naming import generate_name, should_name
 from .store import GenerationStore, Node
 
@@ -85,9 +86,17 @@ class SessionState:
 
 
 class LoomSession:
-    def __init__(self, store: GenerationStore, start_id: str) -> None:
+    def __init__(
+        self,
+        store: GenerationStore,
+        start_id: str,
+        defaults: GenerationDefaults | None = None,
+    ) -> None:
         self._store = store
         self._cancelled = asyncio.Event()
+
+        if defaults is None:
+            defaults = GenerationDefaults()
 
         root_node = store.root(start_id)
         meta = root_node.metadata
@@ -100,10 +109,10 @@ class LoomSession:
         self._child_path: dict[str, int] = self._load_child_path(self._current_id)
         self._selected_idx: int = self._child_path.get(self._current_id, 0)
 
-        self.model: str = str(meta.get("model", get_default_model() or "gpt-4o-mini"))
-        self.max_tokens: int = int(meta.get("max_tokens", 200))
-        self.temperature: float = float(meta.get("temperature", 0.9))
-        self.n_branches: int = int(meta.get("n_branches", 1))
+        self.model: str = str(meta.get("model", get_default_model() or defaults.model))
+        self.max_tokens: int = int(meta.get("max_tokens", defaults.max_tokens))
+        self.temperature: float = float(meta.get("temperature", defaults.temperature))
+        self.n_branches: int = int(meta.get("n_branches", defaults.n_branches))
         self.rewind: bool = bool(meta.get("rewind", False))
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None

@@ -5,6 +5,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from ..config import Config, config_to_dict
 from ..stats import analyze_tree
 from ..store import GenerationStore, Node
 from ._serialize import node_to_dict
@@ -16,7 +17,16 @@ def _get_store(request: Request) -> GenerationStore:
     return request.app.state.store
 
 
+def _get_config(request: Request) -> Config:
+    return request.app.state.config
+
+
 StoreDep = Annotated[GenerationStore, Depends(_get_store)]
+
+
+@router.get("/config")
+async def get_config(request: Request) -> dict:
+    return config_to_dict(_get_config(request))
 
 
 def _root_summary(store: GenerationStore, root: Node) -> dict[str, Any]:

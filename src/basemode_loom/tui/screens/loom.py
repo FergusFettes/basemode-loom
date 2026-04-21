@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import ClassVar
 
-from textual import work
+from textual import events, work
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.screen import Screen
 from textual.widgets import ContentSwitcher, Static
 
+from ...config import DEFAULT_CONFIG, Config, KeyMap
 from ...session import (
     GenerationCancelled,
     GenerationComplete,
@@ -22,37 +24,57 @@ from ...session import (
 from ..widgets.loom_view import LoomView
 from ..widgets.stream_view import StreamView
 
+# Maps shift+number characters (US layout) to their digit values.
+_SHIFT_DIGITS: dict[str, int] = {
+    "!": 1, "@": 2, "#": 3, "$": 4, "%": 5,
+    "^": 6, "&": 7, "*": 8, "(": 9,
+}
 
-class LoomScreen(Screen):
-    BINDINGS: ClassVar[list[Binding]] = [
-        Binding("h", "nav_parent", "Parent", show=False),
-        Binding("l", "nav_child", "Child", show=False),
-        Binding("j", "nav_next", "Next", show=False),
-        Binding("k", "nav_prev", "Prev", show=False),
-        Binding("space", "generate", "Generate"),
-        Binding("e", "edit", "Edit"),
-        Binding("c", "edit_context", "Context", show=False),
-        Binding("m", "pick_model", "Model"),
-        Binding("w", "tokens_up", "+tok", show=False),
-        Binding("s", "tokens_down", "-tok", show=False),
-        Binding("t", "set_tokens", "Tokens"),
-        Binding("a", "branches_down", "-n", show=False),
-        Binding("d", "branches_up", "+n", show=False),
-        Binding("v", "toggle_tree_view", "Tree"),
-        Binding("n", "toggle_model_names", "Names", show=False),
-        Binding("H", "toggle_hoist", "Hoist", show=False),
-        Binding("b", "toggle_bookmark", "Bookmark", show=False),
-        Binding("B", "next_bookmark", "Next mark", show=False),
-        Binding("tab", "open_picker", "Trees"),
-        Binding("?", "open_stats", "Stats"),
-        Binding("q", "quit", "Quit"),
-        Binding("escape", "cancel_or_quit", "Cancel", show=False),
+
+def _build_bindings(km: KeyMap = DEFAULT_CONFIG.keys) -> list[Binding]:
+    return [
+        Binding(km.nav_parent, "nav_parent", "Parent", show=False),
+        Binding(km.nav_child, "nav_child", "Child", show=False),
+        Binding(km.nav_next, "nav_next", "Next", show=False),
+        Binding(km.nav_prev, "nav_prev", "Prev", show=False),
+        Binding(km.word_prev, "word_prev", "◀word", show=False),
+        Binding(km.word_next, "word_next", "word▶", show=False),
+        Binding(km.generate, "generate", "Generate"),
+        Binding(km.quick_generate, "quick_generate", "Quick gen", show=False),
+        Binding(km.edit, "edit", "Edit"),
+        Binding(km.edit_context, "edit_context", "Context", show=False),
+        Binding(km.pick_model, "pick_model", "Model"),
+        Binding(km.tokens_up, "tokens_up", "+tok", show=False),
+        Binding(km.tokens_down, "tokens_down", "-tok", show=False),
+        Binding(km.set_tokens, "set_tokens", "Tokens"),
+        Binding(km.branches_up, "branches_up", "+n", show=False),
+        Binding(km.branches_down, "branches_down", "-n", show=False),
+        Binding(km.toggle_tree_view, "toggle_tree_view", "Tree"),
+        Binding(km.toggle_model_names, "toggle_model_names", "Names", show=False),
+        Binding(km.toggle_hoist, "toggle_hoist", "Hoist", show=False),
+        Binding(km.toggle_bookmark, "toggle_bookmark", "Bookmark", show=False),
+        Binding(km.next_bookmark, "next_bookmark", "Next mark", show=False),
+        Binding(km.open_picker, "open_picker", "Trees"),
+        Binding(km.open_stats, "open_stats", "Stats"),
+        Binding(km.quit, "quit", "Quit"),
+        Binding(km.cancel_or_quit, "cancel_or_quit", "Cancel", show=False),
     ]
 
-    def __init__(self, session: LoomSession) -> None:
+
+def _word_ends(text: str) -> list[int]:
+    """Return the character position after each word in text."""
+    return [m.end() for m in re.finditer(r"\S+", text)]
+
+
+class LoomScreen(Screen):
+    BINDINGS: ClassVar[list[Binding]] = _build_bindings(DEFAULT_CONFIG.keys)
+
+    def __init__(self, session: LoomSession, config: Config = DEFAULT_CONFIG) -> None:
         super().__init__()
         self.session = session
+        self.keymap = config.keys
         self._generating = False
+        self._cursor_word_idx: int | None = None
 
     def compose(self) -> ComposeResult:
         with ContentSwitcher(initial="loom", id="loom-switcher"):
@@ -67,18 +89,42 @@ class LoomScreen(Screen):
     def _update_subtitle(self) -> None:
         s = self.session
         short_model = s.model.split("/")[-1]
-        info = (
-            f"{s._current_id[:8]} {short_model}  "
-            f"tokens:{s.max_tokens} branches:{s.n_branches}  "
-            f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''} "
-            f"names:{'on' if s.show_model_names else 'off'}  "
-            "hjkl nav  space gen  e edit  v view  b mark  tab trees  ? stats  q quit"
-        )
+        if self._cursor_word_idx is not None:
+            km = self.keymap
+            info = (
+                f"{s._current_id[:8]} {short_model}  "
+                f"CURSOR  {km.word_prev}: ◀word  {km.word_next}: ▶word  "
+                f"{km.generate}: truncate+gen  {km.cancel_or_quit}: cancel"
+            )
+        else:
+            info = (
+                f"{s._current_id[:8]} {short_model}  "
+                f"tokens:{s.max_tokens} branches:{s.n_branches}  "
+                f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''} "
+                f"names:{'on' if s.show_model_names else 'off'}  "
+                "hjkl nav  space gen  1-9: N branches  S+space: 10tok  "
+                "e edit  v view  b mark  tab trees  ? stats  q quit"
+            )
         self.sub_title = info
         self.query_one("#status-bar", Static).update(info)
 
     def _refresh(self) -> None:
+        self._cursor_word_idx = None
         self.query_one(LoomView).update_state(self.session.get_state())
+        self._update_subtitle()
+
+    def _refresh_cursor(self) -> None:
+        """Redraw with current cursor position without resetting session state."""
+        state = self.session.get_state()
+        loom_view = self.query_one(LoomView)
+        if self._cursor_word_idx is not None:
+            ends = _word_ends(state.full_text)
+            if ends and self._cursor_word_idx < len(ends):
+                loom_view.set_cursor(state.full_text, ends[self._cursor_word_idx])
+            else:
+                loom_view.set_cursor(state.full_text, None)
+        else:
+            loom_view.set_cursor(state.full_text, None)
         self._update_subtitle()
 
     # --- Navigation ---
@@ -87,7 +133,7 @@ class LoomScreen(Screen):
         state = self.session.get_state()
         if not state.children:
             self.notify(
-                "No continuations yet \u2014 press space to generate", timeout=2
+                "No continuations yet — press space to generate", timeout=2
             )
             return
         self.session.navigate_child()
@@ -114,6 +160,40 @@ class LoomScreen(Screen):
             return
         self.session.select_sibling(-1)
         self._refresh()
+
+    # --- Word cursor ---
+
+    def action_word_prev(self) -> None:
+        full_text = self.session.get_state().full_text
+        ends = _word_ends(full_text)
+        if not ends:
+            return
+        if self._cursor_word_idx is None:
+            new_idx = len(ends) - 2
+        else:
+            new_idx = self._cursor_word_idx - 1
+        if new_idx < 0:
+            return
+        self._cursor_word_idx = new_idx
+        self._refresh_cursor()
+
+    def action_word_next(self) -> None:
+        if self._cursor_word_idx is None:
+            return
+        full_text = self.session.get_state().full_text
+        ends = _word_ends(full_text)
+        if not ends:
+            return
+        new_idx = self._cursor_word_idx + 1
+        if new_idx >= len(ends) - 1:
+            self._cursor_word_idx = None
+            self.query_one(LoomView).set_cursor(full_text, None)
+        else:
+            self._cursor_word_idx = new_idx
+            self.query_one(LoomView).set_cursor(full_text, ends[new_idx])
+        self._update_subtitle()
+
+    # --- View ---
 
     def action_toggle_tree_view(self) -> None:
         self.session.toggle_tree_view()
@@ -249,6 +329,11 @@ class LoomScreen(Screen):
     def action_cancel_or_quit(self) -> None:
         if self._generating:
             self.session.cancel()
+        elif self._cursor_word_idx is not None:
+            self._cursor_word_idx = None
+            full_text = self.session.get_state().full_text
+            self.query_one(LoomView).set_cursor(full_text, None)
+            self._update_subtitle()
         else:
             self.app.exit(message=self._quit_message())
 
@@ -263,8 +348,44 @@ class LoomScreen(Screen):
 
     # --- Generation ---
 
+    def action_generate(self) -> None:
+        self._generate_worker()
+
+    def action_quick_generate(self) -> None:
+        self._generate_worker(max_tokens=10)
+
+    def on_key(self, event: events.Key) -> None:
+        if self._generating:
+            return
+        char = event.character or ""
+        if char.isdigit() and char != "0":
+            event.stop()
+            self._generate_worker(n_branches=int(char))
+        elif char in _SHIFT_DIGITS:
+            event.stop()
+            self._generate_worker(n_branches=_SHIFT_DIGITS[char], max_tokens=10)
+
     @work(exclusive=True)
-    async def action_generate(self) -> None:
+    async def _generate_worker(
+        self,
+        n_branches: int | None = None,
+        max_tokens: int | None = None,
+    ) -> None:
+        if self._cursor_word_idx is not None:
+            state = self.session.get_state()
+            ends = _word_ends(state.full_text)
+            if ends and self._cursor_word_idx < len(ends):
+                truncated = state.full_text[: ends[self._cursor_word_idx]]
+                self.session.apply_edit(state.full_text, truncated)
+            self._cursor_word_idx = None
+
+        old_n = self.session.n_branches
+        old_tok = self.session.max_tokens
+        if n_branches is not None:
+            self.session.set_n_branches(n_branches)
+        if max_tokens is not None:
+            self.session.set_max_tokens(max_tokens)
+
         state = self.session.get_state()
         stream_view = self.query_one(StreamView)
         stream_view.reset(self.session.n_branches, state.full_text)
@@ -284,5 +405,9 @@ class LoomScreen(Screen):
                         self.notify(str(exc), severity="error")
         finally:
             self._generating = False
+            if n_branches is not None:
+                self.session.set_n_branches(old_n)
+            if max_tokens is not None:
+                self.session.set_max_tokens(old_tok)
             self.query_one(ContentSwitcher).current = "loom"
             self._refresh()
