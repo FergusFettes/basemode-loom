@@ -53,6 +53,7 @@ class KeyMap:
     quick_generate: str = "shift+space"
     numeric_branch_shortcuts: bool = True
     edit: str = "e"
+    edit_full: str = "E"
     edit_context: str = "c"
     # Model / params
     pick_model: str = "m"
@@ -71,6 +72,7 @@ class KeyMap:
     # App
     open_picker: str = "tab"
     open_stats: str = "?"
+    open_config_review: str = "C"
     quit: str = "q"
     cancel_or_quit: str = "escape"
 

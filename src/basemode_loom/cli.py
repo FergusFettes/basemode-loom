@@ -1,6 +1,5 @@
 import asyncio
 import json as _json
-import logging
 import sys
 from pathlib import Path
 from typing import Annotated
@@ -17,10 +16,11 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from .logging_utils import configure_logging, get_logger
 from .model_resolver import resolve_model_id
 from .store import AmbiguousNodeReference, GenerationStore, Node
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 console = Console()
 _BRANCH_COLORS = ["green", "blue", "yellow", "magenta", "cyan"]
 
@@ -61,6 +61,11 @@ app = typer.Typer(
     help="Persistent branching exploration and SQLite-backed sessions.",
     cls=_default_to("view"),
 )
+
+
+@app.callback(invoke_without_command=True)
+def _init_logging() -> None:
+    configure_logging("cli")
 
 
 async def _stream_one(

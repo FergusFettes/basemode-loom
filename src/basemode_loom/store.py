@@ -12,6 +12,17 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+_LATEST_USER_VERSION = 2
+_CONFIG_METADATA_KEYS = {
+    "context",
+    "max_tokens",
+    "model",
+    "model_plan",
+    "n_branches",
+    "show_model_names",
+    "temperature",
+}
+
 
 def default_db_path() -> Path:
     """Return the default generation database path."""
@@ -23,6 +34,81 @@ def default_db_path() -> Path:
 
 def _now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def _normalize_root_metadata_config(metadata: dict[str, Any]) -> dict[str, Any]:
+    existing_config = metadata.get("config")
+    config = existing_config if isinstance(existing_config, dict) else {}
+
+    normalized = {
+        key: value
+        for key, value in metadata.items()
+        if key not in _CONFIG_METADATA_KEYS and key != "config"
+    }
+
+    model_plan = _normalize_model_plan(config.get("model_plan"))
+    if not model_plan:
+        model_plan = _model_plan_from_legacy(metadata, config)
+
+    new_config: dict[str, Any] = {}
+    context = config.get("context", metadata.get("context"))
+    if isinstance(context, str):
+        new_config["context"] = context
+
+    show_model_names = config.get("show_model_names", metadata.get("show_model_names"))
+    if isinstance(show_model_names, bool):
+        new_config["show_model_names"] = show_model_names
+
+    if model_plan:
+        new_config["model_plan"] = model_plan
+
+    if new_config:
+        normalized["config"] = new_config
+    return normalized
+
+
+def _normalize_model_plan(raw_plan: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_plan, list):
+        return []
+    plan: list[dict[str, Any]] = []
+    for entry in raw_plan:
+        if not isinstance(entry, dict):
+            continue
+        model = str(entry.get("model", "")).strip()
+        if not model:
+            continue
+        plan.append(
+            {
+                "model": model,
+                "n_branches": max(1, int(entry.get("n_branches", 1))),
+                "max_tokens": max(50, min(int(entry.get("max_tokens", 200)), 8000)),
+                "temperature": float(entry.get("temperature", 0.9)),
+                "enabled": bool(entry.get("enabled", True)),
+            }
+        )
+    return plan
+
+
+def _model_plan_from_legacy(
+    metadata: dict[str, Any], config: dict[str, Any]
+) -> list[dict[str, Any]]:
+    model = str(config.get("model", metadata.get("model", ""))).strip()
+    if not model:
+        return []
+    return [
+        {
+            "model": model,
+            "n_branches": max(1, int(config.get("n_branches", metadata.get("n_branches", 1)))),
+            "max_tokens": max(
+                50,
+                min(int(config.get("max_tokens", metadata.get("max_tokens", 200))), 8000),
+            ),
+            "temperature": float(
+                config.get("temperature", metadata.get("temperature", 0.9))
+            ),
+            "enabled": True,
+        }
+    ]
 
 
 @dataclass(frozen=True)
@@ -105,7 +191,26 @@ class GenerationStore:
                 )
                 """
             )
-            conn.execute("PRAGMA user_version = 1")
+            version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+            if version < 2:
+                self._migrate_to_v2(conn)
+                conn.execute(f"PRAGMA user_version = {_LATEST_USER_VERSION}")
+
+    def _migrate_to_v2(self, conn: sqlite3.Connection) -> None:
+        """Make root metadata config canonical and remove duplicate config keys."""
+        rows = conn.execute(
+            "SELECT id, metadata_json FROM nodes WHERE parent_id IS NULL"
+        ).fetchall()
+        for row in rows:
+            metadata = json.loads(str(row["metadata_json"]))
+            if not isinstance(metadata, dict):
+                metadata = {}
+            normalized = _normalize_root_metadata_config(metadata)
+            if normalized != metadata:
+                conn.execute(
+                    "UPDATE nodes SET metadata_json = ? WHERE id = ?",
+                    (json.dumps(normalized, sort_keys=True), row["id"]),
+                )
 
     def create_root(self, text: str, *, metadata: dict[str, Any] | None = None) -> Node:
         node_id = uuid.uuid4().hex
@@ -306,6 +411,11 @@ class GenerationStore:
         inserted = 0
         with closing(self.connect()) as conn, conn:
             for node in ordered:
+                metadata = (
+                    _normalize_root_metadata_config(node.metadata)
+                    if node.parent_id is None
+                    else node.metadata
+                )
                 result = conn.execute(
                     """
                     INSERT OR IGNORE INTO nodes (
@@ -324,7 +434,7 @@ class GenerationStore:
                         node.temperature,
                         node.branch_index,
                         node.created_at,
-                        json.dumps(node.metadata, sort_keys=True),
+                        json.dumps(metadata, sort_keys=True),
                     ),
                 )
                 inserted += result.rowcount
@@ -351,6 +461,49 @@ class GenerationStore:
 
         with closing(self.connect()) as conn, conn:
             result = conn.execute("DELETE FROM nodes WHERE id = ?", (root.id,))
+            conn.execute(
+                f"DELETE FROM state WHERE value IN ({placeholders})",
+                node_ids,
+            )
+            conn.execute(
+                f"DELETE FROM state WHERE key IN ({key_placeholders})",
+                checked_out_keys,
+            )
+        return result.rowcount + len(node_ids) - 1
+
+    def delete_subtree(self, node_id: str) -> int:
+        """Delete a node and all descendants. Returns deleted node count."""
+        resolved = self.resolve_node_id(node_id)
+        if resolved is None:
+            return 0
+        node = self.get(resolved)
+        if node is None:
+            return 0
+        if node.parent_id is None:
+            return self.delete_tree(node.id)
+
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                WITH RECURSIVE subtree(id) AS (
+                    SELECT id FROM nodes WHERE id = ?
+                    UNION ALL
+                    SELECT n.id FROM nodes n JOIN subtree s ON n.parent_id = s.id
+                )
+                SELECT id FROM subtree
+                """,
+                (node.id,),
+            ).fetchall()
+        node_ids = [str(row[0]) for row in rows]
+        if not node_ids:
+            return 0
+
+        placeholders = ",".join("?" * len(node_ids))
+        checked_out_keys = [f"checked_out:{deleted_id}" for deleted_id in node_ids]
+        key_placeholders = ",".join("?" * len(checked_out_keys))
+
+        with closing(self.connect()) as conn, conn:
+            result = conn.execute("DELETE FROM nodes WHERE id = ?", (node.id,))
             conn.execute(
                 f"DELETE FROM state WHERE value IN ({placeholders})",
                 node_ids,

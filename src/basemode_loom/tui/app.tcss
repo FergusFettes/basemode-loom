@@ -22,6 +22,11 @@ LoomView, StreamView {
     text-style: bold;
 }
 
+#status-bar.editing {
+    background: blue;
+    color: white;
+}
+
 ModelPickerScreen {
     align: center middle;
 }
@@ -120,6 +125,32 @@ StatsScreen #stats-scroll {
 }
 
 StatsScreen #stats-help {
+    color: $text-muted;
+    margin-top: 1;
+}
+
+ConfigReviewScreen {
+    align: center middle;
+}
+
+ConfigReviewScreen #config-review-panel {
+    width: 90%;
+    height: 80%;
+    border: round $primary;
+    background: $surface;
+    padding: 1 2;
+}
+
+ConfigReviewScreen #config-review-title {
+    text-style: bold;
+    margin-bottom: 1;
+}
+
+ConfigReviewScreen #config-review-scroll {
+    height: 1fr;
+}
+
+ConfigReviewScreen #config-review-help {
     color: $text-muted;
     margin-top: 1;
 }

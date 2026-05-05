@@ -17,6 +17,8 @@ class TreePickerScreen(ModalScreen[str | None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("j", "move_down", "Next", show=False),
         Binding("k", "move_up", "Prev", show=False),
+        Binding("down", "move_down", "Next", show=False),
+        Binding("up", "move_up", "Prev", show=False),
         Binding("tab", "select", "Open"),
         Binding("enter", "select", "Open"),
         Binding("d", "delete_selected", "Delete"),

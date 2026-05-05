@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import random
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -17,10 +18,14 @@ from basemode.continue_ import continue_text
 from basemode.detect import detect_strategy
 from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
+from basemode.usage import estimate_usage
 
+from .logging_utils import get_logger
 from .model_resolver import resolve_model_id
 from .naming import generate_name, should_name
 from .store import GenerationStore, Node
+
+log = get_logger(__name__)
 
 
 @dataclass(frozen=True)
@@ -91,6 +96,11 @@ class SessionState:
     tree_nodes: list[Node] | None = None
     show_model_names: bool = True
     model_plan: list[ModelPlanEntry] = field(default_factory=list)
+    tree_prompt_tokens: int = 0
+    tree_completion_tokens: int = 0
+    tree_total_tokens: int = 0
+    tree_cost_usd: float = 0.0
+    tree_pricing_complete: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -117,34 +127,16 @@ class LoomSession:
         self._child_path: dict[str, int] = self._load_child_path(self._current_id)
         self._selected_idx: int = self._child_path.get(self._current_id, 0)
 
-        model_plan_raw = (
-            config_meta.get("model_plan")
-            if isinstance(config_meta.get("model_plan"), list)
-            else meta.get("model_plan")
-        )
+        model_plan_raw = config_meta.get("model_plan")
         if isinstance(model_plan_raw, list) and model_plan_raw:
             self._model_plan = self._parse_model_plan(model_plan_raw)
         else:
             self._model_plan = [
                 ModelPlanEntry(
-                    model=str(
-                        config_meta.get(
-                            "model", meta.get("model", get_default_model() or "gpt-4o-mini")
-                        )
-                    ),
-                    max_tokens=max(
-                        50,
-                        min(
-                            int(config_meta.get("max_tokens", meta.get("max_tokens", 200))),
-                            8000,
-                        ),
-                    ),
-                    temperature=float(
-                        config_meta.get("temperature", meta.get("temperature", 0.9))
-                    ),
-                    n_branches=max(
-                        1, int(config_meta.get("n_branches", meta.get("n_branches", 1)))
-                    ),
+                    model=str(get_default_model() or "gpt-4o-mini"),
+                    max_tokens=200,
+                    temperature=0.9,
+                    n_branches=1,
                     enabled=True,
                 )
             ]
@@ -153,7 +145,7 @@ class LoomSession:
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
         self.show_model_names: bool = bool(
-            config_meta.get("show_model_names", meta.get("show_model_names", True))
+            config_meta.get("show_model_names", True)
         )
 
     # --- State snapshot ---
@@ -170,6 +162,13 @@ class LoomSession:
             self._get_continuation_text(children[selected_idx]) if children else ""
         )
         tree_nodes = store.tree(root.id) if self.view_mode == "tree" else None
+        (
+            tree_prompt_tokens,
+            tree_completion_tokens,
+            tree_total_tokens,
+            tree_cost_usd,
+            tree_pricing_complete,
+        ) = self._tree_usage(root.id, tree_nodes)
         return SessionState(
             current_node_id=self._current_id,
             current_node=node,
@@ -189,6 +188,11 @@ class LoomSession:
             hoisted_node_id=self._hoisted_id,
             tree_nodes=tree_nodes,
             show_model_names=self.show_model_names,
+            tree_prompt_tokens=tree_prompt_tokens,
+            tree_completion_tokens=tree_completion_tokens,
+            tree_total_tokens=tree_total_tokens,
+            tree_cost_usd=tree_cost_usd,
+            tree_pricing_complete=tree_pricing_complete,
         )
 
     def _get_continuation_text(self, selected_child: Node) -> str:
@@ -287,6 +291,7 @@ class LoomSession:
     async def generate(self) -> AsyncGenerator[GenerationEvent, None]:
         self._cancelled.clear()
         state = self.get_state()
+        source_node_id = state.current_node_id
         prefix = state.full_text
         context = state.context
 
@@ -296,16 +301,19 @@ class LoomSession:
                 continue
             for branch_idx in range(plan.n_branches):
                 branch_plan.append((model_idx, branch_idx, plan))
+        random.shuffle(branch_plan)
 
         if not branch_plan:
             yield GenerationError(error=RuntimeError("no enabled model branches"))
             return
 
         buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
-        error: Exception | None = None
+        branch_errors: dict[int, Exception] = {}
         cancelled = False
 
-        queue: asyncio.Queue[tuple[int, int, int, str] | Exception | None] = (
+        queue: asyncio.Queue[
+            tuple[str, int, int, int, str | Exception | None]
+        ] = (
             asyncio.Queue()
         )
 
@@ -323,11 +331,16 @@ class LoomSession:
                 ):
                     if self._cancelled.is_set():
                         break
-                    await queue.put((slot_idx, model_idx, branch_idx, tok))
+                    await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
-                await queue.put(exc)
+                log.exception(
+                    "generation branch failed "
+                    f"model={plan.model} model_idx={model_idx} "
+                    f"branch_idx={branch_idx} slot_idx={slot_idx}"
+                )
+                await queue.put(("error", slot_idx, model_idx, branch_idx, exc))
             finally:
-                await queue.put(None)
+                await queue.put(("done", slot_idx, model_idx, branch_idx, None))
 
         tasks = [
             asyncio.create_task(run_branch(slot_idx, model_idx, branch_idx, plan))
@@ -336,14 +349,21 @@ class LoomSession:
         try:
             done = 0
             while done < len(tasks):
-                item = await queue.get()
-                if item is None:
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=0.1)
+                except TimeoutError:
+                    if self._cancelled.is_set():
+                        cancelled = True
+                        break
+                    continue
+                kind, slot_idx, model_idx, branch_idx, payload = item
+                if kind == "done":
                     done += 1
-                elif isinstance(item, Exception):
-                    error = item
-                    done += 1
+                elif kind == "error":
+                    assert isinstance(payload, Exception)
+                    branch_errors[slot_idx] = payload
                 else:
-                    slot_idx, model_idx, branch_idx, tok = item
+                    tok = str(payload)
                     buffers[slot_idx].append(tok)
                     yield TokenReceived(
                         model_idx=model_idx,
@@ -364,19 +384,43 @@ class LoomSession:
             yield GenerationCancelled()
             return
 
-        if error is not None:
-            yield GenerationError(error=error)
-            return
+        successful: list[tuple[tuple[int, int, ModelPlanEntry], str]] = []
+        for slot_idx, plan_entry in enumerate(branch_plan):
+            if slot_idx in branch_errors:
+                continue
+            successful.append((plan_entry, "".join(buffers[slot_idx])))
 
-        completions = ["".join(b) for b in buffers]
-        new_nodes = self._save_completions(prefix, branch_plan, completions)
-        yield GenerationComplete(completions=completions, new_nodes=new_nodes)
+        new_nodes: list[Node] = []
+        if successful:
+            plans = [entry[0] for entry in successful]
+            completions = [entry[1] for entry in successful]
+            new_nodes = self._save_completions(
+                prefix, plans, completions, parent_id=source_node_id
+            )
+            log.info(
+                "generation complete "
+                f"source_node={source_node_id} "
+                f"saved={len(new_nodes)} failed={len(branch_errors)}"
+            )
+            yield GenerationComplete(completions=completions, new_nodes=new_nodes)
+
+        if branch_errors:
+            first = next(iter(branch_errors.values()))
+            count = len(branch_errors)
+            message = str(first) if count == 1 else f"{count} branches failed; first error: {first}"
+            log.warning(
+                "generation partial failure "
+                f"source_node={source_node_id} failed={count} message={message}"
+            )
+            yield GenerationError(error=RuntimeError(message))
 
     def _save_completions(
         self,
         prefix: str,
         branch_plan: list[tuple[int, int, ModelPlanEntry]],
         completions: list[str],
+        *,
+        parent_id: str,
     ) -> list[Node]:
         new_children: list[Node] = []
         for global_idx, ((model_idx, branch_idx, plan), completion) in enumerate(
@@ -385,8 +429,14 @@ class LoomSession:
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
             normalized = normalize_completion_segment(prefix, completion)
+            usage = self._estimate_usage(
+                resolved,
+                strategy_name,
+                prefix,
+                normalized,
+            )
             node = self._store.add_child(
-                self._current_id,
+                parent_id,
                 normalized,
                 model=resolved,
                 strategy=strategy_name,
@@ -396,14 +446,15 @@ class LoomSession:
                 metadata={
                     "model_idx": model_idx,
                     "model_branch_index": branch_idx,
+                    "usage": usage,
                 },
             )
             new_children.append(node)
 
         if new_children:
-            self._child_path[self._current_id] = len(new_children) - 1
-            self._store.set_checked_out_child(self._current_id, new_children[-1].id)
-            if len(new_children) == 1:
+            self._child_path[parent_id] = len(new_children) - 1
+            self._store.set_checked_out_child(parent_id, new_children[-1].id)
+            if len(new_children) == 1 and self._current_id == parent_id:
                 self._current_id = new_children[0].id
                 self._selected_idx = 0
         self._maybe_name_tree(new_children)
@@ -528,6 +579,50 @@ class LoomSession:
         self._selected_idx = 0
         return new_node
 
+    def delete_selected_child(self) -> bool:
+        children = self._store.children(self._current_id)
+        if not children:
+            return False
+        selected_idx = min(self._selected_idx, len(children) - 1)
+        selected = children[selected_idx]
+        deleted = self._store.delete_subtree(selected.id)
+        if deleted <= 0:
+            return False
+
+        updated = self._store.children(self._current_id)
+        if not updated:
+            self._selected_idx = 0
+            self._child_path.pop(self._current_id, None)
+            return True
+
+        self._selected_idx = min(selected_idx, len(updated) - 1)
+        self._child_path[self._current_id] = self._selected_idx
+        self._store.set_checked_out_child(
+            self._current_id, updated[self._selected_idx].id
+        )
+        return True
+
+    def edit_node_text(self, node_id: str, new_text: str) -> Node | None:
+        """Edit a single node segment by creating a direct forked node."""
+        node = self._store.get(node_id)
+        if node is None:
+            return None
+        if node.text == new_text:
+            return None
+        if node.parent_id is None:
+            new_node = self._store.create_root(new_text, metadata={"source": "edited"})
+        else:
+            new_node = self._store.add_child(
+                node.parent_id,
+                new_text,
+                model=node.model or "manual",
+                strategy=node.strategy or "manual",
+                max_tokens=node.max_tokens or self.max_tokens,
+                temperature=node.temperature or self.temperature,
+            )
+        self._checkout_node(new_node.id)
+        return new_node
+
     def update_context(self, context: str) -> None:
         self.persist_config(context=context)
 
@@ -550,7 +645,7 @@ class LoomSession:
     def persist_config(self, *, context: str | None = None) -> None:
         root_node = self._store.root(self._current_id)
         persisted = self._build_persisted_config(context=context)
-        self._store.update_metadata(root_node.id, {"config": persisted, **persisted})
+        self._store.update_metadata(root_node.id, {"config": persisted})
 
     # --- Params ---
 
@@ -609,7 +704,6 @@ class LoomSession:
             {
                 "last_node_id": self._current_id,
                 "config": persisted,
-                **persisted,
                 "rewind": self.rewind,
             },
         )
@@ -671,11 +765,68 @@ class LoomSession:
             )
         return parsed
 
+    def _estimate_usage(
+        self, model: str, strategy: str, prefix: str, completion: str
+    ) -> dict[str, Any]:
+        try:
+            prompt, messages = _usage_prompt(model, prefix, strategy)
+            usage = estimate_usage(
+                model,
+                prompt,
+                completion,
+                prompt_messages=messages,
+                prompt_requests=1,
+            )
+        except Exception:
+            return {}
+        return {
+            "model": usage.model,
+            "prompt_tokens": int(usage.prompt_tokens),
+            "completion_tokens": int(usage.completion_tokens),
+            "total_tokens": int(usage.total_tokens),
+            "cost_usd": float(usage.cost_usd or 0.0),
+            "pricing_available": bool(usage.pricing_available),
+        }
+
+    def _tree_usage(
+        self, root_id: str, tree_nodes: list[Node] | None = None
+    ) -> tuple[int, int, int, float, bool]:
+        nodes = tree_nodes if tree_nodes is not None else self._store.tree(root_id)
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
+        cost_usd = 0.0
+        pricing_complete = True
+
+        for node in nodes:
+            usage = node.metadata.get("usage")
+            if not isinstance(usage, dict):
+                continue
+
+            prompt_tokens += int(usage.get("prompt_tokens", 0) or 0)
+            completion_tokens += int(usage.get("completion_tokens", 0) or 0)
+            total_tokens += int(usage.get("total_tokens", 0) or 0)
+            raw_cost = usage.get("cost_usd")
+            if isinstance(raw_cost, (int, float)):
+                cost_usd += float(raw_cost)
+            elif usage:
+                pricing_complete = False
+            if usage.get("pricing_available") is False:
+                pricing_complete = False
+
+        return (
+            prompt_tokens,
+            completion_tokens,
+            total_tokens,
+            cost_usd,
+            pricing_complete,
+        )
+
     def _current_context(self, root_metadata: dict[str, Any]) -> str:
         cfg = root_metadata.get("config")
         if isinstance(cfg, dict) and isinstance(cfg.get("context"), str):
             return cfg["context"]
-        return str(root_metadata.get("context", ""))
+        return ""
 
     def _build_persisted_config(self, *, context: str | None = None) -> dict[str, Any]:
         root_node = self._store.root(self._current_id)
@@ -683,10 +834,6 @@ class LoomSession:
             context if context is not None else self._current_context(root_node.metadata)
         )
         return {
-            "model": self.model,
-            "max_tokens": self.max_tokens,
-            "temperature": self.temperature,
-            "n_branches": self.branches_per_model,
             "context": resolved_context,
             "show_model_names": self.show_model_names,
             "model_plan": [
@@ -749,3 +896,41 @@ class LoomSession:
             if plan.enabled:
                 return plan.n_branches
         return self._model_plan[0].n_branches
+
+
+def _usage_prompt(
+    model: str, prefix: str, strategy: str
+) -> tuple[str, list[dict[str, str]] | None]:
+    from basemode.healing import normalize_prefix
+    from basemode.strategies.few_shot import _SYSTEM_PROMPT as FEW_SHOT_SYSTEM_PROMPT
+    from basemode.strategies.fim import _fim_prompt
+    from basemode.strategies.prefill import SEED_LEN
+    from basemode.strategies.system import SYSTEM_PROMPT
+
+    if strategy == "system":
+        return "", [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": normalize_prefix(prefix)},
+        ]
+    if strategy == "few_shot":
+        return "", [
+            {"role": "system", "content": FEW_SHOT_SYSTEM_PROMPT},
+            {"role": "user", "content": normalize_prefix(prefix)},
+        ]
+    if strategy == "prefill":
+        seed = prefix[-SEED_LEN:] if len(prefix) > SEED_LEN else prefix
+        return "", [
+            {
+                "role": "system",
+                "content": (
+                    "You are continuing the following text. "
+                    "Output only the continuation - no preamble, no commentary.\n\n"
+                    f"Text to continue:\n{prefix}"
+                ),
+            },
+            {"role": "user", "content": "[continue]"},
+            {"role": "assistant", "content": seed},
+        ]
+    if strategy == "fim":
+        return _fim_prompt(prefix), None
+    return normalize_prefix(prefix), None

@@ -53,4 +53,9 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
         if state.tree_nodes is not None
         else None,
         "show_model_names": state.show_model_names,
+        "tree_prompt_tokens": state.tree_prompt_tokens,
+        "tree_completion_tokens": state.tree_completion_tokens,
+        "tree_total_tokens": state.tree_total_tokens,
+        "tree_cost_usd": state.tree_cost_usd,
+        "tree_pricing_complete": state.tree_pricing_complete,
     }

@@ -20,6 +20,8 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("j", "cursor_down", "Down", show=False),
         Binding("k", "cursor_up", "Up", show=False),
+        Binding("down", "cursor_down", "Down", show=False),
+        Binding("up", "cursor_up", "Up", show=False),
         Binding("space", "toggle_select", "Toggle", priority=True),
         Binding("enter", "submit_selection", "Apply", priority=True),
         Binding("escape", "dismiss_none", "Cancel"),

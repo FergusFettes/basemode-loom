@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ..logging_utils import get_logger
 from ..session import (
     GenerationCancelled,
     GenerationComplete,
@@ -15,6 +16,8 @@ from ..session import (
 )
 from ..store import GenerationStore
 from ._serialize import node_to_dict, state_to_dict
+
+log = get_logger(__name__)
 
 
 def _is_int(value: Any) -> bool:
@@ -208,6 +211,7 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
         except asyncio.CancelledError:
             pass
         except Exception as exc:
+            log.exception(f"websocket generation loop failed: {exc}")
             await send_error(str(exc))
 
     try:
@@ -311,6 +315,7 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 await send_error(f"unknown message type: {msg_type!r}")
 
     except WebSocketDisconnect:
+        log.info("websocket disconnected")
         if gen_task and not gen_task.done():
             gen_task.cancel()
             await asyncio.gather(gen_task, return_exceptions=True)

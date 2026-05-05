@@ -7,12 +7,15 @@ from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from ..config import DEFAULT_CONFIG, Config
+from ..logging_utils import configure_logging
 from ..store import GenerationStore
 from ._rest import router
 from ._ws import session_ws
 
 
 def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastAPI:
+    configure_logging("api")
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.store = store

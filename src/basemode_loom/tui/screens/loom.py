@@ -4,6 +4,7 @@ import os
 import re
 import subprocess
 import tempfile
+from dataclasses import replace
 from pathlib import Path
 from typing import ClassVar
 
@@ -14,6 +15,7 @@ from textual.screen import Screen
 from textual.widgets import ContentSwitcher, Static
 
 from ...config import DEFAULT_CONFIG, Config, KeyMap
+from ...logging_utils import get_logger
 from ...session import (
     GenerationCancelled,
     GenerationComplete,
@@ -23,6 +25,8 @@ from ...session import (
 )
 from ..widgets.loom_view import LoomView
 from ..widgets.stream_view import StreamView
+
+log = get_logger(__name__)
 
 # Maps shift+number characters (US layout) to their digit values.
 _SHIFT_DIGITS: dict[str, int] = {
@@ -49,6 +53,7 @@ def _build_bindings(km: KeyMap = DEFAULT_CONFIG.keys) -> list[Binding]:
         Binding(km.generate, "generate", "Generate"),
         Binding(km.quick_generate, "quick_generate", "Quick gen", show=False),
         Binding(km.edit, "edit", "Edit"),
+        Binding(km.edit_full, "edit_full", "Full edit", show=False),
         Binding(km.edit_context, "edit_context", "Context", show=False),
         Binding(km.pick_model, "pick_model", "Model"),
         Binding(km.tokens_up, "tokens_up", "+tok", show=False),
@@ -63,6 +68,8 @@ def _build_bindings(km: KeyMap = DEFAULT_CONFIG.keys) -> list[Binding]:
         Binding(km.next_bookmark, "next_bookmark", "Next mark", show=False),
         Binding(km.open_picker, "open_picker", "Trees"),
         Binding(km.open_stats, "open_stats", "Stats"),
+        Binding(km.open_config_review, "open_config_review", "Config"),
+        Binding("D", "delete_selected_child", "Del child", show=False),
         Binding(km.quit, "quit", "Quit"),
         Binding(km.cancel_or_quit, "cancel_or_quit", "Cancel", show=False),
     ]
@@ -83,6 +90,12 @@ class LoomScreen(Screen):
         self.numeric_branch_shortcuts = bool(config.keys.numeric_branch_shortcuts)
         self._generating = False
         self._cursor_word_idx: int | None = None
+        self._edit_mode = False
+        self._edit_node_id: str | None = None
+        self._edit_buffer = ""
+        self._edit_cursor = 0
+        self._edit_selected_child = False
+        self._gen_escape_armed = False
 
     def compose(self) -> ComposeResult:
         with ContentSwitcher(initial="loom", id="loom-switcher"):
@@ -91,13 +104,58 @@ class LoomScreen(Screen):
         yield Static("", id="status-bar")
 
     def on_mount(self) -> None:
-        self.query_one(LoomView).update_state(self.session.get_state())
+        self.query_one(LoomView).update_state(self._display_state())
         self._update_subtitle()
+
+    def _display_state(self):
+        state = self.session.get_state()
+        if (
+            not self._edit_mode
+            or state.view_mode != "branch"
+            or self._edit_node_id is None
+        ):
+            return state
+        if state.current_node_id == self._edit_node_id:
+            preview = self._edit_preview_text()
+            base_len = max(0, len(state.full_text) - len(state.current_node.text))
+            edited_full_text = state.full_text[:base_len] + preview
+            return replace(
+                state,
+                current_node=replace(state.current_node, text=preview),
+                full_text=edited_full_text,
+            )
+        if self._edit_selected_child and state.children:
+            selected_idx = state.selected_child_idx
+            if 0 <= selected_idx < len(state.children):
+                selected = state.children[selected_idx]
+                if selected.id == self._edit_node_id:
+                    preview = self._edit_preview_text()
+                    updated_children = list(state.children)
+                    updated_children[selected_idx] = replace(
+                        selected, text=preview
+                    )
+                    return replace(state, children=updated_children)
+        return state
+
+    def _edit_preview_text(self) -> str:
+        cursor = max(0, min(self._edit_cursor, len(self._edit_buffer)))
+        return self._edit_buffer[:cursor] + "▋" + self._edit_buffer[cursor:]
 
     def _update_subtitle(self) -> None:
         s = self.session
+        state = self._display_state()
+        tree_cost = f"${state.tree_cost_usd:.6f}"
+        if not state.tree_pricing_complete:
+            tree_cost += "*"
         short_model = s.model.split("/")[-1]
-        if self._cursor_word_idx is not None:
+        if self._edit_mode:
+            node_label = (self._edit_node_id or s._current_id)[:8]
+            info = (
+                f"{s._current_id[:8]} {short_model}  "
+                f"EDITING NODE {node_label}  "
+                "type text  ←/→ move  backspace delete  enter apply  S+enter/Ctrl+J newline  esc cancel"
+            )
+        elif self._cursor_word_idx is not None:
             km = self.keymap
             info = (
                 f"{s._current_id[:8]} {short_model}  "
@@ -108,17 +166,23 @@ class LoomScreen(Screen):
             info = (
                 f"{s._current_id[:8]} {short_model}  "
                 f"tokens:{s.max_tokens} branches/model:{s.branches_per_model} total:{s.n_branches}  "
+                f"tree_cost:{tree_cost} tree_toks:{state.tree_total_tokens}  "
                 f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''} "
                 f"names:{'on' if s.show_model_names else 'off'}  "
                 "hjkl nav  space gen  1-9: N branches  S+space: 10tok  "
-                "e edit  v view  b mark  tab trees  ? stats  q quit"
+                "e edit  E full-edit  v view  b mark  tab trees  C config  ? stats  q quit"
             )
+        if self._generating:
+            info += "  GEN:running (Esc hide, Esc again cancel)"
         self.sub_title = info
-        self.query_one("#status-bar", Static).update(info)
+        status_bar = self.query_one("#status-bar", Static)
+        status_bar.set_class(self._edit_mode, "editing")
+        status_bar.update(info)
 
     def _refresh(self) -> None:
         self._cursor_word_idx = None
-        self.query_one(LoomView).update_state(self.session.get_state())
+        self.query_one(LoomView).set_cursor(None)
+        self.query_one(LoomView).update_state(self._display_state())
         self._update_subtitle()
 
     def _refresh_cursor(self) -> None:
@@ -304,7 +368,36 @@ class LoomScreen(Screen):
 
     # --- Edit / context ---
 
-    async def action_edit(self) -> None:
+    def action_edit(self) -> None:
+        if self._generating:
+            self.notify("Generation running. Press Esc to hide stream first.", timeout=2)
+            return
+        state = self.session.get_state()
+        if state.view_mode != "branch":
+            self.notify("Inline edit is only available in branch view", timeout=2)
+            return
+        if state.children:
+            target = state.children[state.selected_child_idx]
+            self._edit_selected_child = True
+        else:
+            target = state.current_node
+            self._edit_selected_child = False
+        self._cursor_word_idx = None
+        self.query_one(LoomView).set_cursor(None)
+        self._edit_mode = True
+        self._edit_node_id = target.id
+        self._edit_buffer = target.text
+        self._edit_cursor = len(self._edit_buffer)
+        self.query_one(LoomView).update_state(self._display_state())
+        self._update_subtitle()
+
+    def action_edit_full(self) -> None:
+        if self._generating or self._edit_mode:
+            return
+        self._edit_full_worker()
+
+    @work(exclusive=True)
+    async def _edit_full_worker(self) -> None:
         state = self.session.get_state()
         original = state.full_text
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
@@ -366,11 +459,45 @@ class LoomScreen(Screen):
         )
         self.app.push_screen(StatsScreen(stats))
 
+    def action_open_config_review(self) -> None:
+        if self._generating:
+            return
+        from ..screens.config_review import ConfigReviewScreen
+
+        state = self.session.get_state()
+        root = self.session.store.root(state.root_id)
+        self.app.push_screen(ConfigReviewScreen(root))
+
+    def action_delete_selected_child(self) -> None:
+        if self._generating or self._edit_mode:
+            return
+        if self.session.delete_selected_child():
+            self._refresh()
+            self.notify("Deleted selected child", timeout=1)
+        else:
+            self.notify("No child to delete", timeout=1)
+
     # --- Quit / cancel ---
 
     def action_cancel_or_quit(self) -> None:
         if self._generating:
-            self.session.cancel()
+            switcher = self.query_one(ContentSwitcher)
+            if switcher.current == "stream":
+                switcher.current = "loom"
+                self._gen_escape_armed = True
+                self._update_subtitle()
+            elif not self._gen_escape_armed:
+                self._gen_escape_armed = True
+                self._update_subtitle()
+            else:
+                self.session.cancel()
+        elif self._edit_mode:
+            self._edit_mode = False
+            self._edit_node_id = None
+            self._edit_buffer = ""
+            self._edit_cursor = 0
+            self._edit_selected_child = False
+            self._refresh()
         elif self._cursor_word_idx is not None:
             self._cursor_word_idx = None
             self.query_one(LoomView).set_cursor(None)
@@ -397,6 +524,92 @@ class LoomScreen(Screen):
 
     def on_key(self, event: events.Key) -> None:
         if self._generating:
+            return
+        if self._edit_mode:
+            key = event.key
+            if key == "escape":
+                event.stop()
+                self.action_cancel_or_quit()
+                return
+            if key in {"shift+enter", "ctrl+j"}:
+                event.stop()
+                self._edit_buffer = (
+                    self._edit_buffer[: self._edit_cursor]
+                    + "\n"
+                    + self._edit_buffer[self._edit_cursor :]
+                )
+                self._edit_cursor += 1
+                self.query_one(LoomView).update_state(self._display_state())
+                self._update_subtitle()
+                return
+            if key == "enter":
+                event.stop()
+                if self._edit_node_id is not None:
+                    self.session.edit_node_text(self._edit_node_id, self._edit_buffer)
+                self._edit_mode = False
+                self._edit_node_id = None
+                self._edit_buffer = ""
+                self._edit_cursor = 0
+                self._edit_selected_child = False
+                self._refresh()
+                return
+            if key == "left":
+                event.stop()
+                self._edit_cursor = max(0, self._edit_cursor - 1)
+            elif key == "right":
+                event.stop()
+                self._edit_cursor = min(len(self._edit_buffer), self._edit_cursor + 1)
+            elif key == "backspace":
+                event.stop()
+                if self._edit_cursor > 0:
+                    self._edit_buffer = (
+                        self._edit_buffer[: self._edit_cursor - 1]
+                        + self._edit_buffer[self._edit_cursor :]
+                    )
+                    self._edit_cursor -= 1
+            elif key == "delete":
+                event.stop()
+                if self._edit_cursor < len(self._edit_buffer):
+                    self._edit_buffer = (
+                        self._edit_buffer[: self._edit_cursor]
+                        + self._edit_buffer[self._edit_cursor + 1 :]
+                    )
+            else:
+                char = event.character
+                if (
+                    char
+                    and len(char) == 1
+                    and char >= " "
+                    and key not in {"tab", "shift+tab"}
+                ):
+                    event.stop()
+                    self._edit_buffer = (
+                        self._edit_buffer[: self._edit_cursor]
+                        + char
+                        + self._edit_buffer[self._edit_cursor :]
+                    )
+                    self._edit_cursor += 1
+                else:
+                    event.stop()
+                    return
+            self.query_one(LoomView).update_state(self._display_state())
+            self._update_subtitle()
+            return
+        if event.key == "left":
+            event.stop()
+            self.action_nav_parent()
+            return
+        if event.key == "right":
+            event.stop()
+            self.action_nav_child()
+            return
+        if event.key == "down":
+            event.stop()
+            self.action_nav_next()
+            return
+        if event.key == "up":
+            event.stop()
+            self.action_nav_prev()
             return
         char = event.character or ""
         if char == "H":
@@ -449,6 +662,7 @@ class LoomScreen(Screen):
         stream_view.reset(self.session.n_branches, state.full_text)
         self.query_one(ContentSwitcher).current = "stream"
         self._generating = True
+        self._gen_escape_armed = False
 
         try:
             async for event in self.session.generate():
@@ -460,9 +674,11 @@ class LoomScreen(Screen):
                     case GenerationCancelled():
                         pass
                     case GenerationError(error=exc):
+                        log.exception(f"generation worker error: {exc}")
                         self.notify(str(exc), severity="error")
         finally:
             self._generating = False
+            self._gen_escape_armed = False
             if n_branches is not None:
                 self.session.set_n_branches(old_n)
             if max_tokens is not None:
