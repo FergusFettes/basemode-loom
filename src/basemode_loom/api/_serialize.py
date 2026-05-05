@@ -10,7 +10,6 @@ def node_to_dict(node: Node) -> dict[str, Any]:
     return {
         "id": node.id,
         "parent_id": node.parent_id,
-        "root_id": node.root_id,
         "tree_id": node.tree_id,
         "kind": node.kind,
         "text": node.text,
@@ -19,7 +18,6 @@ def node_to_dict(node: Node) -> dict[str, Any]:
         "strategy": node.strategy,
         "max_tokens": node.max_tokens,
         "temperature": node.temperature,
-        "branch_index": node.branch_index,
         "checked_out": node.checked_out,
         "created_at": node.created_at,
         "metadata": node.metadata,

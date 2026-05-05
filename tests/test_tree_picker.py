@@ -28,7 +28,7 @@ def multi_tree_store(tmp_path):
         max_tokens=20,
         temperature=0.9,
     )
-    store.update_metadata(ab[0].root_id, {"name": "ship-story"})
+    store.update_tree_settings(ab[0].tree_id, name="ship-story")
 
     _, cd = store.save_continuations(
         "Once upon a time",
@@ -38,7 +38,7 @@ def multi_tree_store(tmp_path):
         max_tokens=20,
         temperature=0.9,
     )
-    store.update_metadata(cd[0].root_id, {"name": "fairy-tale"})
+    store.update_tree_settings(cd[0].tree_id, name="fairy-tale")
 
     _, ef = store.save_continuations(
         "The quick brown fox",
@@ -59,22 +59,22 @@ def multi_tree_store(tmp_path):
 def test_tree_picker_view_loads_all_trees(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     assert len(view._entries) == 3
 
 
 def test_tree_picker_view_cursor_starts_on_current_tree(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, cd[0].root_id)
+    view.load(store, cd[0].id)
     selected = view.selected_root_id()
-    assert selected == cd[0].root_id
+    assert selected == store.root(cd[0].id).id
 
 
 def test_tree_picker_view_move_down(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     view._cursor = 0
     view.move(+1)
     assert view._cursor == 1
@@ -83,7 +83,7 @@ def test_tree_picker_view_move_down(multi_tree_store):
 def test_tree_picker_view_move_up(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     view._cursor = 1
     view.move(-1)
     assert view._cursor == 0
@@ -92,7 +92,7 @@ def test_tree_picker_view_move_up(multi_tree_store):
 def test_tree_picker_view_move_clamps_at_zero(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     view._cursor = 0
     view.move(-1)
     assert view._cursor == 0
@@ -101,7 +101,7 @@ def test_tree_picker_view_move_clamps_at_zero(multi_tree_store):
 def test_tree_picker_view_move_clamps_at_max(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     view._cursor = len(view._entries) - 1
     view.move(+1)
     assert view._cursor == len(view._entries) - 1
@@ -110,7 +110,7 @@ def test_tree_picker_view_move_clamps_at_max(multi_tree_store):
 def test_tree_picker_view_node_count_includes_root(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     # ab has root + 2 children = 3 nodes (roots() returns most-recent first)
     ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert ship_entry.node_count == 3
@@ -119,7 +119,7 @@ def test_tree_picker_view_node_count_includes_root(multi_tree_store):
 def test_tree_picker_view_root_preview_text(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert "ship" in ship_entry.root_preview.lower()
 
@@ -135,7 +135,7 @@ def test_tree_picker_view_root_preview_not_fixed_width_truncated(store):
 def test_tree_picker_view_render_shows_delete_per_item(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     rendered = str(view.render())
 
     assert "[d delete]" in rendered
@@ -145,18 +145,18 @@ def test_tree_picker_view_render_shows_delete_per_item(multi_tree_store):
 def test_tree_picker_view_leaf_preview_none_when_only_root(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     fairy_entry = next(e for e in view._entries if e.name == "fairy-tale")
-    # No last_node_id set yet on this tree
+    # No current_node_id set yet on this tree
     assert fairy_entry.leaf_preview == "(at root)"
 
 
-def test_tree_picker_view_leaf_preview_uses_last_node_id(multi_tree_store):
+def test_tree_picker_view_leaf_preview_uses_current_node_id(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
-    # Save a last_node_id pointing to one of ab's children
-    store.update_metadata(ab[0].root_id, {"last_node_id": ab[0].id})
+    # Save a current_node_id pointing to one of ab's children
+    store.set_active_node(ab[0].id)
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert ship_entry.leaf_preview != "(at root)"
 
@@ -164,7 +164,7 @@ def test_tree_picker_view_leaf_preview_uses_last_node_id(multi_tree_store):
 def test_tree_picker_view_unnamed_tree_uses_id_prefix(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     unnamed = next(e for e in view._entries if not e.name)
     # Should display first 8 chars of node id
     assert len(unnamed.root.id[:8]) == 8
@@ -173,7 +173,7 @@ def test_tree_picker_view_unnamed_tree_uses_id_prefix(multi_tree_store):
 def test_tree_picker_view_render_no_crash(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
-    view.load(store, ab[0].root_id)
+    view.load(store, ab[0].id)
     view._size = type("S", (), {"width": 80, "height": 24})()  # fake size
     # render() should not raise
     from rich.text import Text

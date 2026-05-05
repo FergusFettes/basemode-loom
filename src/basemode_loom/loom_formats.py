@@ -182,12 +182,11 @@ def _from_store_node(node: Node) -> AnalysisNode:
     return AnalysisNode(
         id=node.id,
         parent_id=node.parent_id,
-        root_id=node.root_id,
+        root_id=node.tree_id,
         text=node.text,
         kind=node.kind,
         model=node.model,
         created_at=node.created_at,
-        branch_index=node.branch_index,
         generation_id=_optional_str(node.metadata.get("generation_id")),
         bookmarked=bool(node.metadata.get("bookmarked")),
         hidden=bool(node.metadata.get("hidden")),

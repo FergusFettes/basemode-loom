@@ -135,13 +135,11 @@ def import_tree(body: dict, store: StoreDep) -> dict:
                 Node(
                     id=n["id"],
                     parent_id=n.get("parent_id"),
-                    root_id=n.get("root_id", n.get("tree_id", n["id"])),
                     text=n["text"],
                     model=n.get("model"),
                     strategy=n.get("strategy"),
                     max_tokens=n.get("max_tokens"),
                     temperature=n.get("temperature"),
-                    branch_index=n.get("branch_index"),
                     created_at=n.get("created_at", ""),
                     metadata=n.get("metadata", {}),
                     tree_id=n.get("tree_id", n.get("root_id", n["id"])),

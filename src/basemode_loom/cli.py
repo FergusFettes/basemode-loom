@@ -309,7 +309,6 @@ def loom_nodes(
         "Name",
         "Parent",
         "Model",
-        "Branch",
         "Created",
         "Text",
         show_header=True,
@@ -326,7 +325,6 @@ def loom_nodes(
             name,
             node.parent_id or "",
             node.model or "",
-            "" if node.branch_index is None else str(node.branch_index + 1),
             node.created_at,
             _preview(node.text),
         )
@@ -352,9 +350,6 @@ def loom_active(
         name = store.tree_for_node(node.id).name or ""
     table.add_row("Name", name)
     table.add_row("Parent", node.parent_id or "")
-    table.add_row(
-        "Branch", "" if node.branch_index is None else str(node.branch_index + 1)
-    )
     table.add_row("Text", _preview(node.text, limit=120))
     console.print(table)
 
@@ -405,7 +400,6 @@ def loom_children(
         return
     table = Table(
         "ID",
-        "Branch",
         "Model",
         "Created",
         "Text",
@@ -415,7 +409,6 @@ def loom_children(
     for node in rows:
         table.add_row(
             node.id,
-            "" if node.branch_index is None else str(node.branch_index + 1),
             node.model or "",
             node.created_at,
             _preview(node.text),
@@ -648,23 +641,25 @@ def _import_loom_json(store: "GenerationStore", path: Path) -> "Node | None":
         _Node(
             id=n["id"],
             parent_id=n.get("parent_id"),
-            root_id=n["root_id"],
             text=n["text"],
             model=n.get("model"),
             strategy=n.get("strategy"),
             max_tokens=n.get("max_tokens"),
             temperature=n.get("temperature"),
-            branch_index=n.get("branch_index"),
             created_at=n["created_at"],
             metadata=n.get("metadata", {}),
+            tree_id=n.get("tree_id") or n.get("root_id") or n["id"],
+            kind=n.get("kind", "text"),
+            context_id=n.get("context_id"),
+            checked_out=bool(n.get("checked_out", False)),
         )
         for n in raw_nodes
     ]
     inserted = store.import_nodes(nodes)
     skipped = len(nodes) - inserted
     console.print(f"[dim]Imported {inserted} nodes, skipped {skipped} duplicates[/dim]")
-    root_id = next((n.root_id for n in nodes if n.parent_id is None), nodes[0].root_id)
-    root = store.get(root_id)
+    root_node = next((n for n in nodes if n.parent_id is None), nodes[0])
+    root = store.get(root_node.id)
     if root:
         store.set_active_node(root.id)
     return root
@@ -763,13 +758,15 @@ def _serialize_loom_json(tree_nodes: list[Node]) -> str:
             {
                 "id": n.id,
                 "parent_id": n.parent_id,
-                "root_id": n.root_id,
+                "tree_id": n.tree_id,
+                "kind": n.kind,
                 "text": n.text,
+                "context_id": n.context_id,
                 "model": n.model,
                 "strategy": n.strategy,
                 "max_tokens": n.max_tokens,
                 "temperature": n.temperature,
-                "branch_index": n.branch_index,
+                "checked_out": n.checked_out,
                 "created_at": n.created_at,
                 "metadata": n.metadata,
             }
@@ -896,12 +893,7 @@ def _save_loom_run(
     )
     console.print(f"[dim]saved parent: {parent.id}[/dim]")
     for child in children:
-        label = (
-            f"branch {child.branch_index + 1}"
-            if child.branch_index is not None
-            else "child"
-        )
-        console.print(f"[dim]saved {label}: {child.id}[/dim]")
+        console.print(f"[dim]saved child: {child.id}[/dim]")
     base_id = active_node_id or parent.id
     store.set_active_node(base_id if len(children) > 1 else children[0].id)
     _maybe_name_tree(store, children)

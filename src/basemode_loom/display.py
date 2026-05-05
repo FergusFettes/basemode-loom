@@ -121,14 +121,7 @@ def build_tree_display(state: SessionState, width: int) -> list[DisplayLine]:
     for node in nodes:
         children_by_parent.setdefault(node.parent_id, []).append(node)
     for children in children_by_parent.values():
-        children.sort(
-            key=lambda n: (
-                n.branch_index is None,
-                n.branch_index if n.branch_index is not None else 0,
-                n.created_at,
-                n.id,
-            )
-        )
+        children.sort(key=lambda n: (n.created_at, n.id))
 
     path = _path_ids(by_id, state.current_node_id)
     selected_child_id = (

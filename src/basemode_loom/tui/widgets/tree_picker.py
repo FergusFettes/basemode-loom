@@ -44,7 +44,11 @@ class TreePickerView(Widget):
 
     def load(self, store: GenerationStore, current_root_id: str) -> None:
         """Populate the list from the store. Call once after mounting."""
-        self._current_root_id = current_root_id
+        try:
+            current_root = store.root(current_root_id)
+            self._current_root_id = current_root.id
+        except KeyError:
+            self._current_root_id = current_root_id
         roots = store.roots()
         counts = store.descendant_counts([r.id for r in roots]) if roots else {}
 
@@ -70,7 +74,7 @@ class TreePickerView(Widget):
         self._entries = entries
         self._cursor = 0
         for i, e in enumerate(entries):
-            if e.root.id == current_root_id:
+            if e.root.id == self._current_root_id:
                 self._cursor = i
                 break
         self.refresh()

@@ -16,9 +16,7 @@ def test_save_continuations_creates_root_and_branch_children(tmp_path) -> None:
     )
 
     assert parent.parent_id is None
-    assert parent.root_id == parent.id
     assert [child.parent_id for child in children] == [parent.id, parent.id]
-    assert [child.branch_index for child in children] == [None, None]
     assert [child.tree_id for child in children] == [parent.tree_id, parent.tree_id]
     assert store.full_text(children[0].id) == "The ship rounded the headland"
     assert store.full_text(children[1].id) == "The ship rounded into fog"
@@ -46,9 +44,9 @@ def test_save_continuations_can_continue_from_existing_node(tmp_path) -> None:
     )
 
     assert parent.id == first_children[0].id
-    assert [child.root_id for child in next_children] == [
-        parent.root_id,
-        parent.root_id,
+    assert [child.tree_id for child in next_children] == [
+        parent.tree_id,
+        parent.tree_id,
     ]
     assert store.full_text(next_children[0].id) == "ABC"
     assert store.full_text(next_children[1].id) == "ABD"
@@ -64,7 +62,6 @@ def test_children_are_returned_in_creation_order(tmp_path) -> None:
         strategy="system",
         max_tokens=5,
         temperature=0.7,
-        branch_index=1,
     )
     first = store.add_child(
         parent.id,
@@ -73,7 +70,6 @@ def test_children_are_returned_in_creation_order(tmp_path) -> None:
         strategy="system",
         max_tokens=5,
         temperature=0.7,
-        branch_index=0,
     )
 
     assert [node.id for node in store.children(parent.id)] == [second.id, first.id]
@@ -156,13 +152,11 @@ def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
     root = Node(
         id="root",
         parent_id=None,
-        root_id="root",
         text="root",
         model=None,
         strategy=None,
         max_tokens=None,
         temperature=None,
-        branch_index=None,
         created_at="now",
         metadata={
             "model": "model-a",
@@ -170,6 +164,7 @@ def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
             "temperature": 0.4,
             "n_branches": 2,
         },
+        tree_id="root",
     )
 
     store.import_nodes([root])
@@ -271,7 +266,7 @@ def test_delete_tree_removes_nodes_and_related_state(tmp_path) -> None:
     assert store.get(child.id) is None
     assert store.get(grandchild.id) is None
     assert store.roots() == [other_root]
-    assert store.get_active_node_id() is None
+    assert store.get_active_node_id() == other_root.id
     assert store.get_checked_out_child_id(root.id) is None
 
 
@@ -325,7 +320,6 @@ def test_select_branch_is_one_based(tmp_path) -> None:
         strategy="system",
         max_tokens=5,
         temperature=0.7,
-        branch_index=0,
     )
     second = store.add_child(
         parent.id,
@@ -334,7 +328,6 @@ def test_select_branch_is_one_based(tmp_path) -> None:
         strategy="system",
         max_tokens=5,
         temperature=0.7,
-        branch_index=1,
     )
 
     assert store.select_branch(parent.id, 1) == first
@@ -354,14 +347,13 @@ def _insert_test_node(store: GenerationStore, node_id: str) -> None:
         Node(
             id=node_id,
             parent_id=None,
-            root_id=node_id,
             text=node_id,
             model=None,
             strategy=None,
             max_tokens=None,
             temperature=None,
-            branch_index=None,
             created_at=node_id,
             metadata={},
+            tree_id=node_id,
         )
     )

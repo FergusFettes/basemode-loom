@@ -12,7 +12,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-_LATEST_USER_VERSION = 3
+_LATEST_USER_VERSION = 4
 _CONFIG_METADATA_KEYS = {
     "context",
     "max_tokens",
@@ -170,16 +170,14 @@ def _metadata_without_tree_settings(metadata: dict[str, Any]) -> dict[str, Any]:
 class Node:
     id: str
     parent_id: str | None
-    root_id: str
     text: str
     model: str | None
     strategy: str | None
     max_tokens: int | None
     temperature: float | None
-    branch_index: int | None
     created_at: str
     metadata: dict[str, Any]
-    tree_id: str = ""
+    tree_id: str
     kind: str = "text"
     context_id: str | None = None
     checked_out: bool = False
@@ -232,6 +230,7 @@ class GenerationStore:
 
     def _init_db(self) -> None:
         with closing(self.connect()) as conn, conn:
+            had_nodes = self._table_exists(conn, "nodes")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS trees (
@@ -251,9 +250,8 @@ class GenerationStore:
                 """
                 CREATE TABLE IF NOT EXISTS nodes (
                     id TEXT PRIMARY KEY,
-                    tree_id TEXT,
+                    tree_id TEXT NOT NULL,
                     parent_id TEXT REFERENCES nodes(id) ON DELETE CASCADE,
-                    root_id TEXT NOT NULL,
                     kind TEXT NOT NULL DEFAULT 'text',
                     text TEXT NOT NULL,
                     context_id TEXT REFERENCES nodes(id),
@@ -261,59 +259,66 @@ class GenerationStore:
                     strategy TEXT,
                     max_tokens INTEGER,
                     temperature REAL,
-                    branch_index INTEGER,
                     checked_out INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL,
                     metadata_json TEXT NOT NULL DEFAULT '{}'
                 )
                 """
             )
-            self._ensure_column(conn, "nodes", "tree_id", "TEXT")
-            self._ensure_column(conn, "nodes", "kind", "TEXT NOT NULL DEFAULT 'text'")
-            self._ensure_column(conn, "nodes", "context_id", "TEXT")
-            self._ensure_column(
-                conn, "nodes", "checked_out", "INTEGER NOT NULL DEFAULT 0"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_nodes_parent_created ON nodes(parent_id, created_at)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_nodes_root_created ON nodes(root_id, created_at)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_nodes_tree_created ON nodes(tree_id, created_at)"
-            )
-            conn.execute(
-                """
-                CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_one_checked_out_child
-                ON nodes(parent_id)
-                WHERE checked_out = 1 AND parent_id IS NOT NULL
-                """
-            )
-            conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS state (
-                    key TEXT PRIMARY KEY,
-                    value TEXT NOT NULL
+            if had_nodes:
+                self._ensure_column(conn, "nodes", "tree_id", "TEXT")
+                self._ensure_column(
+                    conn, "nodes", "kind", "TEXT NOT NULL DEFAULT 'text'"
                 )
-                """
-            )
+                self._ensure_column(conn, "nodes", "context_id", "TEXT")
+                self._ensure_column(
+                    conn, "nodes", "checked_out", "INTEGER NOT NULL DEFAULT 0"
+                )
             version = int(conn.execute("PRAGMA user_version").fetchone()[0])
             if version < 2:
                 self._migrate_to_v2(conn)
             if version < 3:
                 self._migrate_to_v3(conn)
+            if version < 4:
+                self._migrate_to_v4(conn)
+            self._create_indexes(conn)
             if version < _LATEST_USER_VERSION:
                 conn.execute(f"PRAGMA user_version = {_LATEST_USER_VERSION}")
+
+    def _table_exists(self, conn: sqlite3.Connection, table: str) -> bool:
+        return (
+            conn.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+            is not None
+        )
+
+    def _has_column(self, conn: sqlite3.Connection, table: str, name: str) -> bool:
+        return name in {
+            str(row["name"])
+            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
+        }
+
+    def _create_indexes(self, conn: sqlite3.Connection) -> None:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_parent_created ON nodes(parent_id, created_at)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_nodes_tree_created ON nodes(tree_id, created_at)"
+        )
+        conn.execute(
+            """
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_one_checked_out_child
+            ON nodes(parent_id)
+            WHERE checked_out = 1 AND parent_id IS NOT NULL
+            """
+        )
 
     def _ensure_column(
         self, conn: sqlite3.Connection, table: str, name: str, definition: str
     ) -> None:
-        columns = {
-            str(row["name"])
-            for row in conn.execute(f"PRAGMA table_info({table})").fetchall()
-        }
-        if name not in columns:
+        if not self._has_column(conn, table, name):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
 
     def _migrate_to_v2(self, conn: sqlite3.Connection) -> None:
@@ -376,10 +381,16 @@ class GenerationStore:
                     json.dumps(tree_metadata, sort_keys=True),
                 ),
             )
-            conn.execute(
-                "UPDATE nodes SET tree_id = ? WHERE root_id = ?",
-                (root_id, root_id),
-            )
+            if self._has_column(conn, "nodes", "root_id"):
+                conn.execute(
+                    "UPDATE nodes SET tree_id = ? WHERE root_id = ?",
+                    (root_id, root_id),
+                )
+            else:
+                conn.execute(
+                    "UPDATE nodes SET tree_id = ? WHERE tree_id = ? OR id = ?",
+                    (root_id, root_id, root_id),
+                )
             config = (
                 metadata.get("config")
                 if isinstance(metadata.get("config"), dict)
@@ -388,17 +399,30 @@ class GenerationStore:
             context = config.get("context", metadata.get("context"))
             if isinstance(context, str) and context:
                 context_id = uuid.uuid4().hex
-                conn.execute(
-                    """
-                    INSERT INTO nodes (
-                        id, tree_id, parent_id, root_id, kind, text, context_id,
-                        model, strategy, max_tokens, temperature, branch_index,
-                        checked_out, created_at, metadata_json
-                    ) VALUES (?, ?, NULL, ?, 'context', ?, NULL, NULL, NULL,
-                        NULL, NULL, NULL, 0, ?, '{}')
-                    """,
-                    (context_id, root_id, root_id, context, root["created_at"]),
-                )
+                if self._has_column(conn, "nodes", "root_id"):
+                    conn.execute(
+                        """
+                        INSERT INTO nodes (
+                            id, tree_id, parent_id, root_id, kind, text, context_id,
+                            model, strategy, max_tokens, temperature, branch_index,
+                            checked_out, created_at, metadata_json
+                        ) VALUES (?, ?, NULL, ?, 'context', ?, NULL, NULL, NULL,
+                            NULL, NULL, NULL, 0, ?, '{}')
+                        """,
+                        (context_id, root_id, root_id, context, root["created_at"]),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        INSERT INTO nodes (
+                            id, tree_id, parent_id, kind, text, context_id, model,
+                            strategy, max_tokens, temperature, checked_out,
+                            created_at, metadata_json
+                        ) VALUES (?, ?, NULL, 'context', ?, NULL, NULL, NULL,
+                            NULL, NULL, 0, ?, '{}')
+                        """,
+                        (context_id, root_id, context, root["created_at"]),
+                    )
                 conn.execute(
                     "UPDATE nodes SET context_id = ? WHERE id = ?",
                     (context_id, root_id),
@@ -409,9 +433,11 @@ class GenerationStore:
                 (json.dumps(normalized_metadata, sort_keys=True), root_id),
             )
 
-        checked_rows = conn.execute(
-            "SELECT key, value FROM state WHERE key LIKE 'checked_out:%'"
-        ).fetchall()
+        checked_rows = []
+        if self._table_exists(conn, "state"):
+            checked_rows = conn.execute(
+                "SELECT key, value FROM state WHERE key LIKE 'checked_out:%'"
+            ).fetchall()
         for row in checked_rows:
             parent_id = str(row["key"]).split("checked_out:", 1)[-1]
             child_id = str(row["value"])
@@ -428,6 +454,66 @@ class GenerationStore:
                     (child_id,),
                 )
 
+    def _migrate_to_v4(self, conn: sqlite3.Connection) -> None:
+        """Drop legacy root_id/branch_index/state storage after tree migration."""
+        if not self._has_column(conn, "nodes", "root_id") and not self._has_column(
+            conn, "nodes", "branch_index"
+        ):
+            if self._table_exists(conn, "state"):
+                conn.execute("DROP TABLE state")
+            return
+
+        conn.execute("DROP INDEX IF EXISTS idx_nodes_root_created")
+        conn.execute("DROP INDEX IF EXISTS idx_nodes_parent_created")
+        conn.execute("DROP INDEX IF EXISTS idx_nodes_tree_created")
+        conn.execute("DROP INDEX IF EXISTS idx_nodes_one_checked_out_child")
+        conn.execute(
+            """
+            CREATE TABLE nodes_new (
+                id TEXT PRIMARY KEY,
+                tree_id TEXT NOT NULL,
+                parent_id TEXT REFERENCES nodes_new(id) ON DELETE CASCADE,
+                kind TEXT NOT NULL DEFAULT 'text',
+                text TEXT NOT NULL,
+                context_id TEXT REFERENCES nodes_new(id),
+                model TEXT,
+                strategy TEXT,
+                max_tokens INTEGER,
+                temperature REAL,
+                checked_out INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                metadata_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO nodes_new (
+                id, tree_id, parent_id, kind, text, context_id, model, strategy,
+                max_tokens, temperature, checked_out, created_at, metadata_json
+            )
+            SELECT
+                id,
+                COALESCE(tree_id, root_id, id),
+                parent_id,
+                kind,
+                text,
+                context_id,
+                model,
+                strategy,
+                max_tokens,
+                temperature,
+                checked_out,
+                created_at,
+                metadata_json
+            FROM nodes
+            """
+        )
+        conn.execute("DROP TABLE nodes")
+        conn.execute("ALTER TABLE nodes_new RENAME TO nodes")
+        if self._table_exists(conn, "state"):
+            conn.execute("DROP TABLE state")
+
     def create_root(self, text: str, *, metadata: dict[str, Any] | None = None) -> Node:
         node_id = uuid.uuid4().hex
         raw_metadata = metadata or {}
@@ -443,13 +529,11 @@ class GenerationStore:
             context_node = Node(
                 id=uuid.uuid4().hex,
                 parent_id=None,
-                root_id=node_id,
                 text=context,
                 model=None,
                 strategy=None,
                 max_tokens=None,
                 temperature=None,
-                branch_index=None,
                 created_at=_now(),
                 metadata={},
                 tree_id=node_id,
@@ -460,7 +544,6 @@ class GenerationStore:
         node = Node(
             id=node_id,
             parent_id=None,
-            root_id=node_id,
             tree_id=node_id,
             kind="root",
             text=text,
@@ -469,7 +552,6 @@ class GenerationStore:
             strategy=None,
             max_tokens=None,
             temperature=None,
-            branch_index=None,
             checked_out=False,
             created_at=_now(),
             metadata=_metadata_without_tree_settings(raw_metadata),
@@ -513,7 +595,6 @@ class GenerationStore:
         node = Node(
             id=uuid.uuid4().hex,
             parent_id=None,
-            root_id=tree.id,
             tree_id=tree.id,
             kind="context",
             text=text,
@@ -522,7 +603,6 @@ class GenerationStore:
             strategy=None,
             max_tokens=None,
             temperature=None,
-            branch_index=None,
             checked_out=False,
             created_at=_now(),
             metadata=metadata or {},
@@ -539,7 +619,6 @@ class GenerationStore:
         strategy: str,
         max_tokens: int,
         temperature: float,
-        branch_index: int | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Node:
         parent = self.get(parent_id)
@@ -548,7 +627,6 @@ class GenerationStore:
         node = Node(
             id=uuid.uuid4().hex,
             parent_id=parent.id,
-            root_id=parent.root_id,
             tree_id=parent.tree_id,
             kind="text",
             text=text,
@@ -557,7 +635,6 @@ class GenerationStore:
             strategy=strategy,
             max_tokens=max_tokens,
             temperature=temperature,
-            branch_index=branch_index,
             checked_out=False,
             created_at=_now(),
             metadata=metadata or {},
@@ -589,10 +666,9 @@ class GenerationStore:
                 strategy=strategy,
                 max_tokens=max_tokens,
                 temperature=temperature,
-                branch_index=None,
                 metadata=metadata,
             )
-            for i, text in enumerate(continuations)
+            for text in continuations
         ]
         return parent, children
 
@@ -711,9 +787,9 @@ class GenerationStore:
                 """,
                 (node.tree_id,),
             ).fetchone()
-        root = self._node(row) if row else self.get(node.root_id)
+        root = self._node(row) if row else None
         if root is None:
-            raise KeyError(f"unknown root node: {node.root_id}")
+            raise KeyError(f"unknown root node for tree: {node.tree_id}")
         return root
 
     def update_metadata(self, node_id: str, metadata: dict[str, Any]) -> Node:
@@ -724,9 +800,10 @@ class GenerationStore:
         if node.parent_id is None and "name" in metadata:
             tree_updates["name"] = metadata["name"]
             metadata = {k: v for k, v in metadata.items() if k != "name"}
-        if node.parent_id is None and "last_node_id" in metadata:
-            tree_updates["current_node_id"] = metadata["last_node_id"]
-            metadata = {k: v for k, v in metadata.items() if k != "last_node_id"}
+        for key in ("current_node_id", "last_node_id"):
+            if node.parent_id is None and key in metadata:
+                tree_updates["current_node_id"] = metadata[key]
+                metadata = {k: v for k, v in metadata.items() if k != key}
         with closing(self.connect()) as conn, conn:
             conn.execute("BEGIN IMMEDIATE")
             row = conn.execute(
@@ -793,13 +870,9 @@ class GenerationStore:
             ).fetchall()
         return [self._node(row) for row in rows]
 
-    def tree(self, root_id: str) -> list[Node]:
-        """Return all nodes in a tree, ordered by creation time.
-
-        The argument remains named root_id for API compatibility, but any node id
-        in the tree is accepted.
-        """
-        resolved = self.resolve_node_id(root_id)
+    def tree(self, node_id: str) -> list[Node]:
+        """Return all nodes in a tree, ordered by creation time."""
+        resolved = self.resolve_node_id(node_id)
         if resolved is None:
             return []
         node = self.get(resolved)
@@ -842,7 +915,7 @@ class GenerationStore:
         inserted = 0
         with closing(self.connect()) as conn, conn:
             for node in ordered:
-                tree_id = node.tree_id or node.root_id or node.id
+                tree_id = node.tree_id or node.id
                 if node.parent_id is None and node.kind != "context":
                     settings = _tree_settings_from_metadata(node.metadata)
                     conn.execute(
@@ -871,16 +944,15 @@ class GenerationStore:
                 result = conn.execute(
                     """
                     INSERT OR IGNORE INTO nodes (
-                        id, tree_id, parent_id, root_id, kind, text, context_id,
-                        model, strategy, max_tokens, temperature, branch_index,
-                        checked_out, created_at, metadata_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        id, tree_id, parent_id, kind, text, context_id,
+                        model, strategy, max_tokens, temperature, checked_out,
+                        created_at, metadata_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         node.id,
                         tree_id,
                         node.parent_id,
-                        node.root_id,
                         node.kind,
                         node.text,
                         node.context_id,
@@ -888,7 +960,6 @@ class GenerationStore:
                         node.strategy,
                         node.max_tokens,
                         node.temperature,
-                        node.branch_index,
                         int(node.checked_out),
                         node.created_at,
                         json.dumps(metadata, sort_keys=True),
@@ -916,21 +987,9 @@ class GenerationStore:
         if not node_ids:
             return 0
 
-        placeholders = ",".join("?" * len(node_ids))
         with closing(self.connect()) as conn, conn:
             conn.execute("DELETE FROM nodes WHERE tree_id = ?", (root.tree_id,))
             conn.execute("DELETE FROM trees WHERE id = ?", (root.tree_id,))
-            conn.execute(
-                f"DELETE FROM state WHERE value IN ({placeholders})",
-                node_ids,
-            )
-            checked_out_keys = [f"checked_out:{node_id}" for node_id in node_ids]
-            if checked_out_keys:
-                key_placeholders = ",".join("?" * len(checked_out_keys))
-                conn.execute(
-                    f"DELETE FROM state WHERE key IN ({key_placeholders})",
-                    checked_out_keys,
-                )
         return len(node_ids)
 
     def delete_subtree(self, node_id: str) -> int:
@@ -960,21 +1019,8 @@ class GenerationStore:
         if not node_ids:
             return 0
 
-        placeholders = ",".join("?" * len(node_ids))
-
         with closing(self.connect()) as conn, conn:
             result = conn.execute("DELETE FROM nodes WHERE id = ?", (node.id,))
-            conn.execute(
-                f"DELETE FROM state WHERE value IN ({placeholders})",
-                node_ids,
-            )
-            checked_out_keys = [f"checked_out:{deleted_id}" for deleted_id in node_ids]
-            if checked_out_keys:
-                key_placeholders = ",".join("?" * len(checked_out_keys))
-                conn.execute(
-                    f"DELETE FROM state WHERE key IN ({key_placeholders})",
-                    checked_out_keys,
-                )
         return result.rowcount + len(node_ids) - 1
 
     def descendant_count(self, node_id: str) -> int:
@@ -1004,12 +1050,12 @@ class GenerationStore:
         with closing(self.connect()) as conn:
             rows = conn.execute(
                 f"""
-                WITH RECURSIVE desc(id, root_id) AS (
+                WITH RECURSIVE desc(id, parent_root_id) AS (
                     SELECT id, parent_id FROM nodes WHERE parent_id IN ({placeholders})
                     UNION ALL
-                    SELECT n.id, d.root_id FROM nodes n JOIN desc d ON n.parent_id = d.id
+                    SELECT n.id, d.parent_root_id FROM nodes n JOIN desc d ON n.parent_id = d.id
                 )
-                SELECT root_id, COUNT(*) FROM desc GROUP BY root_id
+                SELECT parent_root_id, COUNT(*) FROM desc GROUP BY parent_root_id
                 """,
                 node_ids,
             ).fetchall()
@@ -1026,24 +1072,6 @@ class GenerationStore:
                 (limit,),
             ).fetchall()
         return [self._node(row) for row in rows]
-
-    def set_state(self, key: str, value: str) -> None:
-        with closing(self.connect()) as conn, conn:
-            conn.execute(
-                """
-                INSERT INTO state (key, value)
-                VALUES (?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = excluded.value
-                """,
-                (key, value),
-            )
-
-    def get_state(self, key: str) -> str | None:
-        with closing(self.connect()) as conn:
-            row = conn.execute(
-                "SELECT value FROM state WHERE key = ?", (key,)
-            ).fetchone()
-        return None if row is None else str(row["value"])
 
     def set_checked_out_child(self, parent_id: str, child_id: str) -> None:
         parent = self.get(parent_id)
@@ -1063,7 +1091,6 @@ class GenerationStore:
                 "UPDATE nodes SET checked_out = 1 WHERE id = ?",
                 (child.id,),
             )
-        self.set_state(f"checked_out:{parent.id}", child.id)
 
     def get_checked_out_child_id(self, parent_id: str) -> str | None:
         resolved = self.resolve_node_id(parent_id)
@@ -1081,7 +1108,7 @@ class GenerationStore:
             ).fetchone()
         if row is not None:
             return str(row["id"])
-        return self.get_state(f"checked_out:{resolved}")
+        return None
 
     def set_active_node(self, node_id: str) -> None:
         node = self.get(node_id)
@@ -1092,13 +1119,18 @@ class GenerationStore:
                 "UPDATE trees SET current_node_id = ?, updated_at = ? WHERE id = ?",
                 (node.id, _now(), node.tree_id),
             )
-        self.set_state("active_node_id", node.id)
 
     def get_active_node_id(self) -> str | None:
-        active_id = self.get_state("active_node_id")
-        if active_id and self.get(active_id) is not None:
-            return active_id
-        return None
+        with closing(self.connect()) as conn:
+            row = conn.execute(
+                """
+                SELECT current_node_id FROM trees
+                WHERE current_node_id IS NOT NULL
+                ORDER BY updated_at DESC, id DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        return None if row is None else str(row["current_node_id"])
 
     def get_active_node(self) -> Node | None:
         active_node_id = self.get_active_node_id()
@@ -1138,17 +1170,15 @@ class GenerationStore:
         conn.execute(
             """
             INSERT INTO nodes (
-                id, tree_id, parent_id, root_id, kind, text, context_id,
-                model, strategy, max_tokens, temperature, branch_index,
-                checked_out, created_at, metadata_json
+                id, tree_id, parent_id, kind, text, context_id, model, strategy,
+                max_tokens, temperature, checked_out, created_at, metadata_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 node.id,
-                node.tree_id or node.root_id,
+                node.tree_id,
                 node.parent_id,
-                node.root_id,
                 node.kind,
                 node.text,
                 node.context_id,
@@ -1156,7 +1186,6 @@ class GenerationStore:
                 node.strategy,
                 node.max_tokens,
                 node.temperature,
-                node.branch_index,
                 int(node.checked_out),
                 node.created_at,
                 json.dumps(node.metadata, sort_keys=True),
@@ -1165,23 +1194,18 @@ class GenerationStore:
 
     @staticmethod
     def _node(row: sqlite3.Row) -> Node:
-        tree_id = row["tree_id"] if "tree_id" in row.keys() else row["root_id"]
         return Node(
             id=row["id"],
             parent_id=row["parent_id"],
-            root_id=row["root_id"],
-            tree_id=tree_id or row["root_id"],
-            kind=row["kind"] if "kind" in row.keys() else "text",
+            tree_id=row["tree_id"],
+            kind=row["kind"],
             text=row["text"],
-            context_id=row["context_id"] if "context_id" in row.keys() else None,
+            context_id=row["context_id"],
             model=row["model"],
             strategy=row["strategy"],
             max_tokens=row["max_tokens"],
             temperature=row["temperature"],
-            branch_index=row["branch_index"],
-            checked_out=bool(row["checked_out"])
-            if "checked_out" in row.keys()
-            else False,
+            checked_out=bool(row["checked_out"]),
             created_at=row["created_at"],
             metadata=json.loads(row["metadata_json"]),
         )

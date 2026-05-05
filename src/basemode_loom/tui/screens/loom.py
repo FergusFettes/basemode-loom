@@ -464,7 +464,7 @@ class LoomScreen(Screen):
 
         state = self.session.get_state()
         root = self.session.store.root(state.root_id)
-        self.app.push_screen(ConfigReviewScreen(root))
+        self.app.push_screen(ConfigReviewScreen(self.session.store, root))
 
     def action_delete_selected_child(self) -> None:
         if self._generating or self._edit_mode:

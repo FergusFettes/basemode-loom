@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Mapping
 from typing import Any, ClassVar
 
@@ -14,13 +13,7 @@ from textual.containers import Vertical, VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static
 
-from ...store import Node
-
-_CONFIG_KEYS = {
-    "context",
-    "show_model_names",
-    "model_plan",
-}
+from ...store import GenerationStore, Node, Tree
 
 
 class ConfigReviewScreen(ModalScreen[None]):
@@ -31,8 +24,9 @@ class ConfigReviewScreen(ModalScreen[None]):
         Binding("r", "toggle_raw", "Raw", show=False),
     ]
 
-    def __init__(self, root: Node) -> None:
+    def __init__(self, store: GenerationStore, root: Node) -> None:
         super().__init__()
+        self._store = store
         self._root = root
         self._raw = False
 
@@ -54,25 +48,43 @@ class ConfigReviewScreen(ModalScreen[None]):
         self.query_one("#config-review-content", Static).update(self._render_content())
 
     def _render_content(self) -> Group | JSON:
+        tree = self._store.tree_for_node(self._root.id)
+        context = self._context_node()
         if self._raw:
-            return JSON(json.dumps(self._root.metadata, indent=2, sort_keys=True))
-        return _config_review_renderable(self._root)
+            return JSON.from_data(
+                {
+                    "tree": _tree_dict(tree),
+                    "root": _node_dict(self._root),
+                    "context": _node_dict(context) if context else None,
+                }
+            )
+        return _config_review_renderable(self._root, tree, context)
+
+    def _context_node(self) -> Node | None:
+        if self._root.context_id is None:
+            return None
+        context = self._store.get(self._root.context_id)
+        if context is None or context.kind != "context":
+            return None
+        return context
 
 
-def _config_review_renderable(root: Node) -> Group:
-    config = _metadata_config(root.metadata)
+def _config_review_renderable(root: Node, tree: Tree, context: Node | None) -> Group:
     summary = Table("Setting", "Value", show_header=False)
     summary.add_row("Root", root.id)
-    summary.add_row("Name", str(root.metadata.get("name", "")))
-    summary.add_row("Show model names", str(config.get("show_model_names", "")))
+    summary.add_row("Tree", tree.id)
+    summary.add_row("Name", tree.name or "")
+    summary.add_row("Show model names", str(tree.show_model_names))
+    summary.add_row("Rewind split tokens", str(tree.rewind_split_tokens))
 
     renderables: list[Any] = [summary]
 
-    context = config.get("context")
-    if isinstance(context, str) and context:
-        renderables.extend([Text(""), Text("Context", style="bold"), Text(context)])
+    if context is not None and context.text:
+        renderables.extend(
+            [Text(""), Text("Context", style="bold"), Text(context.text)]
+        )
 
-    model_plan = config.get("model_plan")
+    model_plan = tree.model_plan
     if isinstance(model_plan, list) and model_plan:
         table = Table(
             "Model",
@@ -94,25 +106,50 @@ def _config_review_renderable(root: Node) -> Group:
             )
         renderables.extend([Text(""), Text("Model Plan", style="bold"), table])
 
-    extra_metadata = {
-        key: value
-        for key, value in root.metadata.items()
-        if key != "config" and key not in _CONFIG_KEYS
-    }
-    if extra_metadata:
+    metadata = {}
+    if tree.metadata:
+        metadata["tree"] = tree.metadata
+    if root.metadata:
+        metadata["root"] = root.metadata
+    if metadata:
         renderables.extend(
             [
                 Text(""),
-                Text("Other Root Metadata", style="bold"),
-                JSON.from_data(extra_metadata),
+                Text("Metadata", style="bold"),
+                JSON.from_data(metadata),
             ]
         )
 
     return Group(*renderables)
 
 
-def _metadata_config(metadata: dict[str, Any]) -> dict[str, Any]:
-    config = metadata.get("config")
-    if isinstance(config, dict):
-        return {key: config[key] for key in _CONFIG_KEYS if key in config}
-    return {}
+def _tree_dict(tree: Tree) -> dict[str, Any]:
+    return {
+        "id": tree.id,
+        "current_node_id": tree.current_node_id,
+        "name": tree.name,
+        "show_model_names": tree.show_model_names,
+        "rewind_split_tokens": tree.rewind_split_tokens,
+        "model_plan": tree.model_plan,
+        "created_at": tree.created_at,
+        "updated_at": tree.updated_at,
+        "metadata": tree.metadata,
+    }
+
+
+def _node_dict(node: Node) -> dict[str, Any]:
+    return {
+        "id": node.id,
+        "tree_id": node.tree_id,
+        "parent_id": node.parent_id,
+        "kind": node.kind,
+        "text": node.text,
+        "context_id": node.context_id,
+        "model": node.model,
+        "strategy": node.strategy,
+        "max_tokens": node.max_tokens,
+        "temperature": node.temperature,
+        "checked_out": node.checked_out,
+        "created_at": node.created_at,
+        "metadata": node.metadata,
+    }

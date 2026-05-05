@@ -16,7 +16,6 @@ def preference_tree(tmp_path):
         strategy="system",
         max_tokens=10,
         temperature=0.9,
-        branch_index=0,
     )
     b = store.add_child(
         root.id,
@@ -25,7 +24,6 @@ def preference_tree(tmp_path):
         strategy="system",
         max_tokens=10,
         temperature=0.9,
-        branch_index=1,
     )
     a1 = store.add_child(
         a.id,
@@ -34,7 +32,6 @@ def preference_tree(tmp_path):
         strategy="system",
         max_tokens=10,
         temperature=0.9,
-        branch_index=0,
     )
     a2 = store.add_child(
         a.id,
@@ -43,7 +40,6 @@ def preference_tree(tmp_path):
         strategy="system",
         max_tokens=10,
         temperature=0.9,
-        branch_index=1,
     )
     a1a = store.add_child(
         a1.id,
@@ -52,7 +48,6 @@ def preference_tree(tmp_path):
         strategy="system",
         max_tokens=10,
         temperature=0.9,
-        branch_index=0,
     )
     return store, root, a, b, a1, a2, a1a
 

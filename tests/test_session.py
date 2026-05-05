@@ -334,7 +334,6 @@ def test_delete_selected_child_removes_selected_subtree_and_keeps_parent(store):
         strategy="s",
         max_tokens=10,
         temperature=0.9,
-        branch_index=0,
     )
     right = store.add_child(
         root.id,
@@ -343,7 +342,6 @@ def test_delete_selected_child_removes_selected_subtree_and_keeps_parent(store):
         strategy="s",
         max_tokens=10,
         temperature=0.9,
-        branch_index=1,
     )
     leaf = store.add_child(
         left.id,

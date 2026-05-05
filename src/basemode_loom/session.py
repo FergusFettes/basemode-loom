@@ -421,8 +421,8 @@ class LoomSession:
         parent_id: str,
     ) -> list[Node]:
         new_children: list[Node] = []
-        for global_idx, ((model_idx, branch_idx, plan), completion) in enumerate(
-            zip(branch_plan, completions, strict=False)
+        for (model_idx, branch_idx, plan), completion in zip(
+            branch_plan, completions, strict=False
         ):
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
@@ -440,7 +440,6 @@ class LoomSession:
                 strategy=strategy_name,
                 max_tokens=plan.max_tokens,
                 temperature=plan.temperature,
-                branch_index=global_idx,
                 metadata={
                     "model_idx": model_idx,
                     "model_branch_index": branch_idx,
@@ -788,9 +787,9 @@ class LoomSession:
         }
 
     def _tree_usage(
-        self, root_id: str, tree_nodes: list[Node] | None = None
+        self, node_id: str, tree_nodes: list[Node] | None = None
     ) -> tuple[int, int, int, float, bool]:
-        nodes = tree_nodes if tree_nodes is not None else self._store.tree(root_id)
+        nodes = tree_nodes if tree_nodes is not None else self._store.tree(node_id)
         prompt_tokens = 0
         completion_tokens = 0
         total_tokens = 0

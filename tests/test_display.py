@@ -13,13 +13,12 @@ def _node(id, parent_id=None, root_id=None, text="", model=None):
     return Node(
         id=id,
         parent_id=parent_id,
-        root_id=root_id or id,
+        tree_id=root_id or id,
         text=text,
         model=model,
         strategy=None,
         max_tokens=None,
         temperature=None,
-        branch_index=None,
         created_at="2024-01-01T00:00:00Z",
         metadata={},
     )
