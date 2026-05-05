@@ -59,7 +59,7 @@ GenerationStore (store.py)
 | Change persistence schema | `store.py` | Check `session.py` for any queries that'll need updating |
 | Add a new generation event type | `session.py` (GenerationEvent union) | `tui/widgets/stream_view.py`, `api/_ws.py` for consumers |
 | Add a REST endpoint | `api/_rest.py` | `api/_serialize.py` for Pydantic models |
-| Debug import of legacy files | `loom_formats.py` | `cli.py` (`import` command) |
+| Debug import of legacy files | `loom_formats.py` | `cli.py` (`view` on `.json` export) and `api/_rest.py` (`POST /api/import`) |
 | Understand stats/metrics | `stats.py` | `tui/screens/stats.py` for display |
 | Add auto-naming behavior | `naming.py` | Called from `session.py` after generation |
 
@@ -78,7 +78,7 @@ state.selected_child_idx
 ```python
 async for event in session.generate():
     match event:
-        case TokenReceived(branch_idx=i, token=t): ...
+        case TokenReceived(model_idx=mi, branch_idx=bi, slot_idx=si, token=t): ...
         case GenerationComplete(new_nodes=nodes): ...
         case GenerationError(error=e): ...
         case GenerationCancelled(): ...
@@ -89,11 +89,11 @@ async for event in session.generate():
 store.full_text(node_id)
 store.lineage(node_id)   # root-first list
 store.children(node_id)
-store.tree(root_id)      # all nodes breadth-first
+store.tree(root_id)      # all nodes ordered by creation time
 ```
 
 **Metadata conventions:**
-Root nodes carry tree-level config in `metadata`: `model`, `max_tokens`, `temperature`, `n_branches`, `context`, `name`. Node-level metadata carries `bookmarked` and optionally `rating`.
+Root nodes carry tree-level config in `metadata`: `config`, `model`, `max_tokens`, `temperature`, `n_branches`, `context`, `show_model_names`, `model_plan`, `name`, `last_node_id`. Generated child nodes also carry usage metadata and model-plan branch indices.
 
 ## Tests
 

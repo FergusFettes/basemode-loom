@@ -6,7 +6,7 @@
 basemode-loom run "Once upon a time there was a" -n 3 -m gpt-4o-mini -M 200
 ```
 
-This creates a root node with your prompt, then generates 3 continuations. The tree is saved to `~/.local/share/basemode-loom/loom.db` by default.
+This creates a root node with your prompt, then generates 3 continuations. By default the tree is saved to `~/.local/share/basemode/generations.sqlite` unless `BASEMODE_DB` or `--db` overrides it.
 
 ## 2. Open the TUI
 
@@ -24,6 +24,7 @@ You'll see the interactive tree explorer. The current node's text is shown in co
 | `h` or `←` | Go to parent |
 | `j` / `k` | Select next/previous sibling |
 | `Space` | Generate more continuations from here |
+| `Tab` | Open the tree picker |
 | `q` | Quit |
 
 ## 3. Keep exploring
@@ -31,6 +32,7 @@ You'll see the interactive tree explorer. The current node's text is shown in co
 Navigate to an interesting branch and press `Space` to generate from there. Each generation creates new child nodes.
 
 Press `v` to toggle between branch view (focused on the current path) and tree view (full tree structure).
+Press `m` to pick one or more models for the next generation batch. Branch count is per enabled model.
 
 ## 4. From the CLI
 
@@ -47,6 +49,8 @@ basemode-loom continue -n 3
 # Export the tree to markdown
 basemode-loom export --to file.md
 ```
+
+The default command is `view`, so `basemode-loom <node-id-or-text>` also opens the TUI unless the input resolves to another subcommand.
 
 ## 5. Python API
 

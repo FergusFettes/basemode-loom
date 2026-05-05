@@ -13,7 +13,7 @@ This gives you a tree of generated text that you can explore non-linearly.
 
 ## Persistence
 
-Everything is stored in a local SQLite database (default: `~/.local/share/basemode-loom/loom.db`). Each session resumes exactly where you left off — the active node, which child was selected at each parent, and any bookmarks are all saved.
+Everything is stored in a local SQLite database (default: `~/.local/share/basemode/generations.sqlite`, or `BASEMODE_DB` if set). Each session resumes exactly where you left off: the active node, which child was selected at each parent, and tree-level session config are all saved.
 
 ## Three layers
 
@@ -37,7 +37,7 @@ This keeps storage efficient and makes edit boundaries explicit: when you edit a
 
 ## Generation settings
 
-Model, temperature, max tokens, and number of branches are stored in the **root node's metadata**. When you open a tree, the session loads those settings automatically. You can override them mid-session and the new settings apply to subsequent generations (but don't retroactively change old nodes).
+Model, temperature, max tokens, number of branches, context, model-plan entries, and model-name display are stored in the **root node's metadata**. When you open a tree, the session loads those settings automatically. You can override them mid-session and the new settings apply to subsequent generations without changing older nodes.
 
 ## Auto-naming
 

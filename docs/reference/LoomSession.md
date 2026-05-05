@@ -35,6 +35,12 @@ LoomSession(store: GenerationStore, start_id: str)
 | `hoisted_node_id` | `str \| None` | Node used as display root (hoist mode) |
 | `tree_nodes` | `list[Node] \| None` | All nodes; populated in tree view mode |
 | `show_model_names` | `bool` | Whether model names are shown in the UI |
+| `model_plan` | `list[ModelPlanEntry]` | Per-model generation plan |
+| `tree_prompt_tokens` | `int` | Aggregated prompt-token estimate across the tree |
+| `tree_completion_tokens` | `int` | Aggregated completion-token estimate across the tree |
+| `tree_total_tokens` | `int` | Aggregated total-token estimate across the tree |
+| `tree_cost_usd` | `float` | Aggregated estimated cost across the tree |
+| `tree_pricing_complete` | `bool` | `False` when some nodes are missing pricing data |
 
 ## Navigation
 
@@ -60,7 +66,7 @@ async for event in session.generate():
 
 | Event | Fields | Description |
 |-------|--------|-------------|
-| `TokenReceived` | `branch_idx: int`, `token: str` | Streamed token during generation |
+| `TokenReceived` | `model_idx: int`, `branch_idx: int`, `slot_idx: int`, `token: str` | Streamed token during generation |
 | `GenerationComplete` | `completions: list[str]`, `new_nodes: list[Node]` | All branches done |
 | `GenerationError` | `error: Exception` | Generation failed |
 | `GenerationCancelled` | — | Cancelled via `session.cancel()` |
@@ -75,9 +81,16 @@ session.cancel()  # signal cancellation; will yield GenerationCancelled
 session.set_model("claude-3-5-haiku-20241022")
 session.set_max_tokens(400)
 session.set_n_branches(5)
+session.set_model_plan(
+    [
+        {"model": "gpt-4o-mini", "n_branches": 2, "max_tokens": 200, "temperature": 0.9},
+        {"model": "claude-opus-4-1", "n_branches": 1, "max_tokens": 300, "temperature": 0.8},
+    ]
+)
+session.persist_config(context="Additional instruction text")
 ```
 
-Changes apply to the next call to `generate()` but do not alter existing nodes.
+Changes apply to the next call to `generate()` and can be persisted into the root node metadata.
 
 ## Bookmarks
 
@@ -93,7 +106,14 @@ updated = session.apply_edit(original_text, edited_text)
 # Returns updated Node, or None if no change detected
 ```
 
-The edit is applied to the current node's text segment. If the original text is found in the lineage reconstruction, the matching node's text is updated.
+`apply_edit` forks a new edited lineage from the first changed segment onward. Additional editing helpers:
+
+```python
+session.edit_node_text(node_id, "replacement segment")
+session.truncate_selected_child(char_pos)
+session.delete_selected_child()
+session.update_context("System or task context")
+```
 
 ## View toggles
 

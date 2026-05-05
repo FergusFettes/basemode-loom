@@ -16,8 +16,9 @@ When you're exploring what an LLM might write, you often want to see several pos
 
 | Interface | Use case |
 |-----------|----------|
-| [[CLI Reference]] | Scripting, quick generation, export/import |
+| [[CLI Reference]] | Scripting, quick generation, import/export, inspection |
 | [[TUI Guide]] | Interactive exploration (`basemode-loom view`) |
+| [[Configuration]] | Keybindings, generation defaults, per-model overrides |
 | [[Python API]] | Embedding in your own tools |
 | [[Web Server]] | Headless server + REST/WebSocket API |
 

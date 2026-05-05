@@ -10,7 +10,7 @@ SQLite-backed persistence layer for generation trees. All reads and writes go th
 GenerationStore(path: str | Path | None = None)
 ```
 
-If `path` is `None`, uses `default_db_path()` (`~/.local/share/basemode-loom/loom.db`). The database file and parent directories are created if they don't exist.
+If `path` is `None`, uses `default_db_path()` (`~/.local/share/basemode/generations.sqlite`, or `BASEMODE_DB` if set). The database file and parent directories are created if they don't exist.
 
 ## Writing
 
@@ -28,7 +28,8 @@ If `path` is `None`, uses `default_db_path()` (`~/.local/share/basemode-loom/loo
 | `get(node_id)` | `Node \| None` | Fetch a single node by ID |
 | `root(node_id)` | `Node` | Get the root of any node's tree |
 | `children(node_id)` | `list[Node]` | Direct children, ordered by `branch_index` |
-| `tree(root_id)` | `list[Node]` | All nodes in a tree, breadth-first |
+| `tree(root_id)` | `list[Node]` | All nodes in a tree, ordered by creation time |
+| `find_root_by_text(text)` | `Node \| None` | Find an existing root with identical prompt text |
 | `roots()` | `list[Node]` | All root nodes, most recent first |
 | `recent(limit=20)` | `list[Node]` | Recently created nodes |
 | `lineage(node_id)` | `list[Node]` | Ancestors from root to node (inclusive) |
@@ -48,6 +49,7 @@ If `path` is `None`, uses `default_db_path()` (`~/.local/share/basemode-loom/loo
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `delete_tree(root_id)` | `int` | Delete all nodes in a tree; returns count deleted |
+| `delete_subtree(node_id)` | `int` | Delete a non-root node and all descendants |
 | `import_nodes(nodes)` | `int` | Insert a list of `Node` objects; returns count inserted |
 
 ## Traversal utilities
@@ -57,6 +59,7 @@ If `path` is `None`, uses `default_db_path()` (`~/.local/share/basemode-loom/loo
 | `descendant_count(node_id)` | `int` | Count all descendants of a node |
 | `descendant_counts(node_ids)` | `dict[str, int]` | Batch version of `descendant_count` |
 | `resolve_node_id(reference)` | `str \| None` | Resolve a short prefix, alias, or full ID to a node ID |
+| `select_branch(node_id, branch_index)` | `Node` | Return the `branch_index`th child using 1-based indexing |
 
 ## Database schema
 
@@ -73,7 +76,7 @@ Two tables:
 - `temperature REAL`
 - `branch_index INTEGER`
 - `created_at TEXT`
-- `metadata TEXT` (JSON)
+- `metadata_json TEXT` (JSON)
 
 **`state`** — key/value table for ephemeral session state:
 - `key TEXT PRIMARY KEY`

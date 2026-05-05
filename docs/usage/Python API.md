@@ -13,7 +13,7 @@ The main persistence interface. Wraps a SQLite database.
 ```python
 from basemode_loom import GenerationStore
 
-# Default path: ~/.local/share/basemode-loom/loom.db
+# Default path: ~/.local/share/basemode/generations.sqlite
 store = GenerationStore()
 
 # Custom path
@@ -112,6 +112,9 @@ counts = store.descendant_counts([node.id for node in nodes])
 
 # Resolve a node ID from a short prefix or other reference
 resolved_id = store.resolve_node_id("abc1")
+
+# Resolve the numbered branch chosen in the CLI
+branch_node = store.select_branch(node.id, 2)  # 1-based
 ```
 
 ## LoomSession
@@ -139,7 +142,11 @@ state.selected_child_idx # int
 state.model              # str
 state.max_tokens         # int
 state.n_branches         # int
+state.model_plan         # list[ModelPlanEntry]
+state.context            # str
 state.view_mode          # "branch" | "tree"
+state.tree_total_tokens  # int
+state.tree_cost_usd      # float
 ```
 
 ### Navigation
@@ -159,8 +166,8 @@ import asyncio
 async def generate():
     async for event in session.generate():
         match event:
-            case TokenReceived(branch_idx=i, token=t):
-                print(f"Branch {i}: {t}", end="", flush=True)
+            case TokenReceived(model_idx=mi, branch_idx=bi, slot_idx=si, token=t):
+                print(f"Model {mi} branch {bi} slot {si}: {t}", end="", flush=True)
             case GenerationComplete(new_nodes=nodes):
                 print(f"\nGenerated {len(nodes)} nodes")
             case GenerationError(error=e):
@@ -180,6 +187,13 @@ session.cancel()
 session.set_model("claude-3-5-haiku-20241022")
 session.set_max_tokens(400)
 session.set_n_branches(5)
+session.set_model_plan(
+    [
+        {"model": "gpt-4o-mini", "n_branches": 2, "max_tokens": 200, "temperature": 0.9},
+        {"model": "claude-opus-4-1", "n_branches": 2, "max_tokens": 300, "temperature": 0.8},
+    ]
+)
+session.persist_config(context="You are writing a terse noir scene.")
 ```
 
 ### Bookmarks
@@ -195,14 +209,20 @@ state = session.next_bookmark()         # jump to next bookmarked node
 # Apply an edit: provide original and edited text
 # Returns the updated Node or None if no change
 updated_node = session.apply_edit(original_text, edited_text)
+
+# Edit only one node segment by forking it
+forked = session.edit_node_text(node.id, "rewritten segment")
+
+# Truncate the selected child at a character position and fork from there
+truncated = session.truncate_selected_child(120)
 ```
 
 ### View modes
 
 ```python
 state = session.toggle_tree_view()    # branch ↔ tree
-state = session.toggle_model_names() # show/hide model labels
-state = session.toggle_hoist()       # hoist current node as display root
+state = session.toggle_model_names()  # show/hide model labels
+state = session.toggle_hoist()        # hoist current node as display root
 ```
 
 ### Persistence
