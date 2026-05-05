@@ -8,7 +8,7 @@ from pydantic import BaseModel
 from ..config import Config, config_to_dict
 from ..stats import analyze_tree
 from ..store import GenerationStore, Node
-from ._serialize import node_to_dict
+from ._serialize import node_to_dict, tree_to_dict
 
 router = APIRouter(prefix="/api")
 
@@ -30,10 +30,12 @@ async def get_config(request: Request) -> dict:
 
 
 def _root_summary(store: GenerationStore, root: Node) -> dict[str, Any]:
+    tree = store.tree_for_node(root.id)
     return {
         "id": root.id,
+        "tree_id": root.tree_id,
         "text": root.text[:200],
-        "name": root.metadata.get("name"),
+        "name": tree.name,
         "created_at": root.created_at,
         "descendant_count": store.descendant_count(root.id),
     }
@@ -79,7 +81,11 @@ def delete_root(root_id: str, store: StoreDep) -> dict:
 def get_tree(root_id: str, store: StoreDep) -> dict:
     if store.get(root_id) is None:
         raise HTTPException(status_code=404, detail="root not found")
-    return {"nodes": [node_to_dict(n) for n in store.tree(root_id)]}
+    tree = store.tree_for_node(root_id)
+    return {
+        "tree": tree_to_dict(tree),
+        "nodes": [node_to_dict(n) for n in store.tree(root_id)],
+    }
 
 
 @router.get("/roots/{root_id}/stats")
@@ -129,7 +135,7 @@ def import_tree(body: dict, store: StoreDep) -> dict:
                 Node(
                     id=n["id"],
                     parent_id=n.get("parent_id"),
-                    root_id=n["root_id"],
+                    root_id=n.get("root_id", n.get("tree_id", n["id"])),
                     text=n["text"],
                     model=n.get("model"),
                     strategy=n.get("strategy"),
@@ -138,6 +144,10 @@ def import_tree(body: dict, store: StoreDep) -> dict:
                     branch_index=n.get("branch_index"),
                     created_at=n.get("created_at", ""),
                     metadata=n.get("metadata", {}),
+                    tree_id=n.get("tree_id", n.get("root_id", n["id"])),
+                    kind=n.get("kind", "text"),
+                    context_id=n.get("context_id"),
+                    checked_out=bool(n.get("checked_out", False)),
                 )
             )
         except KeyError as exc:

@@ -316,10 +316,14 @@ def loom_nodes(
         header_style="bold",
     )
     for node in rows:
+        name = ""
+        if node.parent_id is None and node.kind != "context":
+            tree = store.tree_for_node(node.id)
+            name = tree.name or ""
         table.add_row(
             "*" if node.id == active_id else "",
             node.id,
-            str(node.metadata.get("name", "")),
+            name,
             node.parent_id or "",
             node.model or "",
             "" if node.branch_index is None else str(node.branch_index + 1),
@@ -343,7 +347,10 @@ def loom_active(
         return
     table = Table("Field", "Value", show_header=True, header_style="bold")
     table.add_row("ID", node.id)
-    table.add_row("Name", str(node.metadata.get("name", "")))
+    name = ""
+    if node.parent_id is None and node.kind != "context":
+        name = store.tree_for_node(node.id).name or ""
+    table.add_row("Name", name)
     table.add_row("Parent", node.parent_id or "")
     table.add_row(
         "Branch", "" if node.branch_index is None else str(node.branch_index + 1)
@@ -434,10 +441,11 @@ def loom_roots(
     )
     for root in rows:
         child_count = len(store.children(root.id))
+        tree = store.tree_for_node(root.id)
         table.add_row(
             "*" if root.id == active_id else "",
             root.id[:8],
-            str(root.metadata.get("name", "")),
+            str(tree.name or ""),
             str(child_count),
             root.created_at,
             _preview(root.text),
@@ -727,10 +735,11 @@ def _export_format(to: str) -> str:
 
 
 def _checked_out_node(store: GenerationStore, root: Node, fallback: Node) -> Node:
-    last_id = root.metadata.get("last_node_id")
+    tree = store.tree_for_node(root.id)
+    last_id = tree.current_node_id
     if isinstance(last_id, str):
         last = store.get(last_id)
-        if last is not None and last.root_id == root.id:
+        if last is not None and last.tree_id == root.tree_id and last.id != root.id:
             return last
 
     node = root
@@ -902,7 +911,8 @@ def _maybe_name_tree(store: GenerationStore, children: list[Node]) -> None:
     if not children:
         return
     root = store.root(children[0].id)
-    if root.metadata.get("name"):
+    tree = store.tree_for_node(root.id)
+    if tree.name:
         return
 
     candidates = [(child, store.full_text(child.id)) for child in children]
@@ -913,7 +923,9 @@ def _maybe_name_tree(store: GenerationStore, children: list[Node]) -> None:
     name = generate_name(text)
     if name is None:
         return
-    store.update_metadata(root.id, {"name": name, "named_from": child.id})
+    store.update_tree_settings(
+        root.tree_id, name=name, metadata={"named_from": child.id}
+    )
     console.print(f"[dim]named tree: {name}[/dim]")
 
 

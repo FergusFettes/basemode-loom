@@ -20,6 +20,7 @@ _NONE_LABEL = "(at root)"
 @dataclass
 class _TreeEntry:
     root: Node
+    name: str | None
     node_count: int
     root_preview: str  # flattened first-paragraph text
     leaf_preview: str  # text of the checked-out leaf node
@@ -54,14 +55,17 @@ class TreePickerView(Widget):
 
             root_preview = self._flatten(root.text)
 
-            last_id = root.metadata.get("last_node_id")
+            tree = store.tree_for_node(root.id)
+            last_id = tree.current_node_id
             if last_id and last_id != root.id:
                 node = store.get(last_id)
                 leaf_preview = self._flatten(node.text) if node else _NONE_LABEL
             else:
                 leaf_preview = _NONE_LABEL
 
-            entries.append(_TreeEntry(root, node_count, root_preview, leaf_preview))
+            entries.append(
+                _TreeEntry(root, tree.name, node_count, root_preview, leaf_preview)
+            )
 
         self._entries = entries
         self._cursor = 0
@@ -99,7 +103,7 @@ class TreePickerView(Widget):
             selected = i == self._cursor
             is_open = entry.root.id == self._current_root_id
 
-            name = entry.root.metadata.get("name") or entry.root.id[:8]
+            name = entry.name or entry.root.id[:8]
             count_str = f"{entry.node_count} node{'s' if entry.node_count != 1 else ''}"
             delete_str = "d delete" if selected else "delete"
             meta_str = f"{count_str}  [{delete_str}]"

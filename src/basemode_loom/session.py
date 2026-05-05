@@ -114,22 +114,20 @@ class LoomSession:
         self._cancelled = asyncio.Event()
 
         root_node = store.root(start_id)
-        meta = root_node.metadata
-        config_meta = (
-            meta.get("config") if isinstance(meta.get("config"), dict) else {}
-        )
-        saved_id = meta.get("last_node_id")
-        if saved_id and store.get(saved_id) is not None:
-            self._current_id: str = saved_id
+        tree = store.tree_for_node(root_node.id)
+        start_node = store.get(start_id)
+        if start_node is not None and start_node.id != root_node.id:
+            self._current_id = start_node.id
+        elif tree.current_node_id and store.get(tree.current_node_id) is not None:
+            self._current_id: str = tree.current_node_id
         else:
             self._current_id = start_id
 
         self._child_path: dict[str, int] = self._load_child_path(self._current_id)
         self._selected_idx: int = self._child_path.get(self._current_id, 0)
 
-        model_plan_raw = config_meta.get("model_plan")
-        if isinstance(model_plan_raw, list) and model_plan_raw:
-            self._model_plan = self._parse_model_plan(model_plan_raw)
+        if tree.model_plan:
+            self._model_plan = self._parse_model_plan(tree.model_plan)
         else:
             self._model_plan = [
                 ModelPlanEntry(
@@ -141,12 +139,10 @@ class LoomSession:
                 )
             ]
 
-        self.rewind: bool = bool(meta.get("rewind", False))
+        self.rewind_split_tokens: int = tree.rewind_split_tokens
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
-        self.show_model_names: bool = bool(
-            config_meta.get("show_model_names", True)
-        )
+        self.show_model_names: bool = tree.show_model_names
 
     # --- State snapshot ---
 
@@ -182,7 +178,7 @@ class LoomSession:
             temperature=self.temperature,
             n_branches=self.n_branches,
             model_plan=self.model_plan,
-            context=self._current_context(root.metadata),
+            context=self._current_context(node),
             root_id=root.id,
             view_mode=self.view_mode,
             hoisted_node_id=self._hoisted_id,
@@ -311,9 +307,7 @@ class LoomSession:
         branch_errors: dict[int, Exception] = {}
         cancelled = False
 
-        queue: asyncio.Queue[
-            tuple[str, int, int, int, str | Exception | None]
-        ] = (
+        queue: asyncio.Queue[tuple[str, int, int, int, str | Exception | None]] = (
             asyncio.Queue()
         )
 
@@ -327,7 +321,7 @@ class LoomSession:
                     max_tokens=plan.max_tokens,
                     temperature=plan.temperature,
                     context=context,
-                    rewind=self.rewind,
+                    rewind=bool(self.rewind_split_tokens),
                 ):
                     if self._cancelled.is_set():
                         break
@@ -407,7 +401,11 @@ class LoomSession:
         if branch_errors:
             first = next(iter(branch_errors.values()))
             count = len(branch_errors)
-            message = str(first) if count == 1 else f"{count} branches failed; first error: {first}"
+            message = (
+                str(first)
+                if count == 1
+                else f"{count} branches failed; first error: {first}"
+            )
             log.warning(
                 "generation partial failure "
                 f"source_node={source_node_id} failed={count} message={message}"
@@ -464,7 +462,8 @@ class LoomSession:
         if not children:
             return
         root = self._store.root(children[0].id)
-        if root.metadata.get("name"):
+        tree = self._store.tree_for_node(root.id)
+        if tree.name:
             return
         candidates = [(child, self._store.full_text(child.id)) for child in children]
         child, text = max(candidates, key=lambda item: len(item[1]))
@@ -473,7 +472,11 @@ class LoomSession:
         name = generate_name(text)
         if name is None:
             return
-        self._store.update_metadata(root.id, {"name": name, "named_from": child.id})
+        self._store.update_tree_settings(
+            root.tree_id,
+            name=name,
+            metadata={"named_from": child.id},
+        )
 
     # --- Editing ---
 
@@ -624,7 +627,12 @@ class LoomSession:
         return new_node
 
     def update_context(self, context: str) -> None:
-        self.persist_config(context=context)
+        root_node = self._store.root(self._current_id)
+        if context:
+            context_node = self._store.create_context(root_node.tree_id, context)
+            self._store.set_node_context(root_node.id, context_node.id)
+        else:
+            self._store.set_node_context(root_node.id, None)
 
     def apply_config_patch(self, config_patch: dict[str, Any]) -> None:
         if "model_plan" in config_patch:
@@ -643,9 +651,9 @@ class LoomSession:
             self.update_context(str(config_patch["context"]))
 
     def persist_config(self, *, context: str | None = None) -> None:
-        root_node = self._store.root(self._current_id)
-        persisted = self._build_persisted_config(context=context)
-        self._store.update_metadata(root_node.id, {"config": persisted})
+        if context is not None:
+            self.update_context(context)
+        self._persist_tree_settings()
 
     # --- Params ---
 
@@ -696,17 +704,8 @@ class LoomSession:
     # --- Persistence ---
 
     def save(self) -> None:
-        root_node = self._store.root(self._current_id)
-        persisted = self._build_persisted_config()
         self._store.set_active_node(self._current_id)
-        self._store.update_metadata(
-            root_node.id,
-            {
-                "last_node_id": self._current_id,
-                "config": persisted,
-                "rewind": self.rewind,
-            },
-        )
+        self._persist_tree_settings()
 
     @property
     def store(self) -> GenerationStore:
@@ -822,21 +821,24 @@ class LoomSession:
             pricing_complete,
         )
 
-    def _current_context(self, root_metadata: dict[str, Any]) -> str:
-        cfg = root_metadata.get("config")
-        if isinstance(cfg, dict) and isinstance(cfg.get("context"), str):
-            return cfg["context"]
+    def _current_context(self, node: Node) -> str:
+        context_id = node.context_id
+        if context_id is None:
+            root = self._store.root(node.id)
+            context_id = root.context_id
+        if context_id:
+            context = self._store.get(context_id)
+            if context is not None and context.kind == "context":
+                return context.text
         return ""
 
-    def _build_persisted_config(self, *, context: str | None = None) -> dict[str, Any]:
+    def _persist_tree_settings(self) -> None:
         root_node = self._store.root(self._current_id)
-        resolved_context = (
-            context if context is not None else self._current_context(root_node.metadata)
-        )
-        return {
-            "context": resolved_context,
-            "show_model_names": self.show_model_names,
-            "model_plan": [
+        self._store.update_tree_settings(
+            root_node.tree_id,
+            show_model_names=self.show_model_names,
+            rewind_split_tokens=self.rewind_split_tokens,
+            model_plan=[
                 {
                     "model": p.model,
                     "n_branches": p.n_branches,
@@ -846,7 +848,7 @@ class LoomSession:
                 }
                 for p in self._model_plan
             ],
-        }
+        )
 
     @property
     def model_plan(self) -> list[ModelPlanEntry]:

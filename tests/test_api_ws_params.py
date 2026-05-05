@@ -72,10 +72,12 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             assert state["show_model_names"] is False
 
     persisted_root = store.root(root.id)
-    persisted = persisted_root.metadata["config"]
-    assert persisted["context"] == "world facts"
-    assert persisted["show_model_names"] is False
-    assert persisted["model_plan"] == [
+    tree = store.tree_for_node(root.id)
+    context = store.get(persisted_root.context_id)
+    assert context is not None
+    assert context.text == "world facts"
+    assert tree.show_model_names is False
+    assert tree.model_plan == [
         {
             "model": "openai/gpt-4o-mini",
             "n_branches": 3,
@@ -110,9 +112,9 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
 
         response = client.get(f"/api/roots/{root.id}/tree")
         assert response.status_code == 200
-        root_node = _root_node(response.json()["nodes"])
-        meta = root_node["metadata"]
-        assert meta["config"]["model_plan"] == [
+        body = response.json()
+        root_node = _root_node(body["nodes"])
+        assert body["tree"]["model_plan"] == [
             {
                 "model": "openai/gpt-4o",
                 "n_branches": 2,
@@ -121,10 +123,10 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
                 "enabled": True,
             }
         ]
-        assert "model" not in meta
-        assert "max_tokens" not in meta
-        assert "temperature" not in meta
-        assert "n_branches" not in meta
+        assert "model" not in root_node["metadata"]
+        assert "max_tokens" not in root_node["metadata"]
+        assert "temperature" not in root_node["metadata"]
+        assert "n_branches" not in root_node["metadata"]
 
 
 def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
@@ -147,11 +149,12 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
             assert msg["type"] == "error"
             assert msg["message"] == "invalid set_params"
             assert msg["fields"]["temperature"] == "must be a number between 0 and 2"
-            assert msg["fields"]["max_tokens"] == "must be an integer between 50 and 8000"
+            assert (
+                msg["fields"]["max_tokens"] == "must be an integer between 50 and 8000"
+            )
             assert msg["fields"]["persist"] == "only persist=true is supported"
 
-    persisted_root = store.root(root.id)
-    assert persisted_root.metadata.get("max_tokens") == 200
+    assert store.tree_for_node(root.id).model_plan[0]["max_tokens"] == 200
 
 
 def test_set_params_last_write_wins_across_sessions(tmp_path) -> None:

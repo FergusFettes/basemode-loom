@@ -18,7 +18,8 @@ def test_save_continuations_creates_root_and_branch_children(tmp_path) -> None:
     assert parent.parent_id is None
     assert parent.root_id == parent.id
     assert [child.parent_id for child in children] == [parent.id, parent.id]
-    assert [child.branch_index for child in children] == [0, 1]
+    assert [child.branch_index for child in children] == [None, None]
+    assert [child.tree_id for child in children] == [parent.tree_id, parent.tree_id]
     assert store.full_text(children[0].id) == "The ship rounded the headland"
     assert store.full_text(children[1].id) == "The ship rounded into fog"
 
@@ -53,7 +54,7 @@ def test_save_continuations_can_continue_from_existing_node(tmp_path) -> None:
     assert store.full_text(next_children[1].id) == "ABD"
 
 
-def test_children_are_returned_in_branch_order(tmp_path) -> None:
+def test_children_are_returned_in_creation_order(tmp_path) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
     parent = store.create_root("root")
     second = store.add_child(
@@ -75,7 +76,7 @@ def test_children_are_returned_in_branch_order(tmp_path) -> None:
         branch_index=0,
     )
 
-    assert [node.id for node in store.children(parent.id)] == [first.id, second.id]
+    assert [node.id for node in store.children(parent.id)] == [second.id, first.id]
 
 
 def test_unknown_parent_raises(tmp_path) -> None:
@@ -98,8 +99,8 @@ def test_update_metadata_merges_existing_values(tmp_path) -> None:
 
     updated = store.update_metadata(root.id, {"name": "this-is-the-topic"})
 
-    assert updated.metadata == {"source": "test", "name": "this-is-the-topic"}
-    assert store.get(root.id).metadata["name"] == "this-is-the-topic"
+    assert updated.metadata == {"source": "test"}
+    assert store.tree_for_node(root.id).name == "this-is-the-topic"
 
 
 def test_store_migrates_root_config_metadata_to_model_plan(tmp_path) -> None:
@@ -130,22 +131,24 @@ def test_store_migrates_root_config_metadata_to_model_plan(tmp_path) -> None:
 
     migrated = GenerationStore(db).get(root.id)
     assert migrated is not None
-    assert migrated.metadata == {
-        "config": {
-            "context": "ctx",
-            "show_model_names": False,
-            "model_plan": [
-                {
-                    "model": "model-a",
-                    "n_branches": 2,
-                    "max_tokens": 123,
-                    "temperature": 0.4,
-                    "enabled": True,
-                }
-            ],
-        },
-        "name": "root-name",
-    }
+    tree = GenerationStore(db).tree_for_node(root.id)
+    assert tree.name == "root-name"
+    assert tree.show_model_names is False
+    assert tree.model_plan == [
+        {
+            "model": "model-a",
+            "n_branches": 2,
+            "max_tokens": 123,
+            "temperature": 0.4,
+            "enabled": True,
+        }
+    ]
+    assert migrated.context_id is not None
+    context = GenerationStore(db).get(migrated.context_id)
+    assert context is not None
+    assert context.kind == "context"
+    assert context.text == "ctx"
+    assert migrated.metadata == {}
 
 
 def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
@@ -172,19 +175,16 @@ def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
     store.import_nodes([root])
     imported = store.get("root")
     assert imported is not None
-    assert imported.metadata == {
-        "config": {
-            "model_plan": [
-                {
-                    "model": "model-a",
-                    "n_branches": 2,
-                    "max_tokens": 123,
-                    "temperature": 0.4,
-                    "enabled": True,
-                }
-            ]
+    assert imported.metadata == {}
+    assert store.tree_for_node("root").model_plan == [
+        {
+            "model": "model-a",
+            "n_branches": 2,
+            "max_tokens": 123,
+            "temperature": 0.4,
+            "enabled": True,
         }
-    }
+    ]
 
 
 def test_get_resolves_unique_id_substrings(tmp_path) -> None:

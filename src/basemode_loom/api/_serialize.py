@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..session import SessionState
-from ..store import Node
+from ..store import Node, Tree
 
 
 def node_to_dict(node: Node) -> dict[str, Any]:
@@ -11,14 +11,32 @@ def node_to_dict(node: Node) -> dict[str, Any]:
         "id": node.id,
         "parent_id": node.parent_id,
         "root_id": node.root_id,
+        "tree_id": node.tree_id,
+        "kind": node.kind,
         "text": node.text,
+        "context_id": node.context_id,
         "model": node.model,
         "strategy": node.strategy,
         "max_tokens": node.max_tokens,
         "temperature": node.temperature,
         "branch_index": node.branch_index,
+        "checked_out": node.checked_out,
         "created_at": node.created_at,
         "metadata": node.metadata,
+    }
+
+
+def tree_to_dict(tree: Tree) -> dict[str, Any]:
+    return {
+        "id": tree.id,
+        "current_node_id": tree.current_node_id,
+        "name": tree.name,
+        "show_model_names": tree.show_model_names,
+        "rewind_split_tokens": tree.rewind_split_tokens,
+        "model_plan": tree.model_plan,
+        "created_at": tree.created_at,
+        "updated_at": tree.updated_at,
+        "metadata": tree.metadata,
     }
 
 

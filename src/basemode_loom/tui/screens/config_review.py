@@ -51,9 +51,7 @@ class ConfigReviewScreen(ModalScreen[None]):
 
     def action_toggle_raw(self) -> None:
         self._raw = not self._raw
-        self.query_one("#config-review-content", Static).update(
-            self._render_content()
-        )
+        self.query_one("#config-review-content", Static).update(self._render_content())
 
     def _render_content(self) -> Group | JSON:
         if self._raw:

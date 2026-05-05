@@ -113,7 +113,7 @@ def analyze_analysis_tree(
     path_node_id: str | None = None,
 ) -> LoomStats:
     """Compute stats for any loom-like tree normalized by loom_formats."""
-    nodes = tree.nodes
+    nodes = [node for node in tree.nodes if node.kind != "context"]
     by_id = {node.id: node for node in nodes}
     children_by_parent: dict[str, list[AnalysisNode]] = defaultdict(list)
     for node in nodes:

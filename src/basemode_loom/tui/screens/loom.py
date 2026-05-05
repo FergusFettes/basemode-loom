@@ -131,9 +131,7 @@ class LoomScreen(Screen):
                 if selected.id == self._edit_node_id:
                     preview = self._edit_preview_text()
                     updated_children = list(state.children)
-                    updated_children[selected_idx] = replace(
-                        selected, text=preview
-                    )
+                    updated_children[selected_idx] = replace(selected, text=preview)
                     return replace(state, children=updated_children)
         return state
 
@@ -345,9 +343,7 @@ class LoomScreen(Screen):
                             plan.n_branches if plan is not None else per_model_branches
                         ),
                         "max_tokens": (
-                            plan.max_tokens
-                            if plan is not None
-                            else default_max_tokens
+                            plan.max_tokens if plan is not None else default_max_tokens
                         ),
                         "temperature": (
                             plan.temperature
@@ -370,7 +366,9 @@ class LoomScreen(Screen):
 
     def action_edit(self) -> None:
         if self._generating:
-            self.notify("Generation running. Press Esc to hide stream first.", timeout=2)
+            self.notify(
+                "Generation running. Press Esc to hide stream first.", timeout=2
+            )
             return
         state = self.session.get_state()
         if state.view_mode != "branch":
@@ -511,7 +509,8 @@ class LoomScreen(Screen):
     def _quit_message(self) -> str:
         state = self.session.get_state()
         root = self.session.store.root(state.root_id)
-        name = root.metadata.get("name") or root.id[:8]
+        tree = self.session.store.tree_for_node(root.id)
+        name = tree.name or root.id[:8]
         return f"Quit tree: {name} ({root.id})\nRejoin: basemode-loom view {root.id}"
 
     # --- Generation ---
@@ -624,11 +623,7 @@ class LoomScreen(Screen):
         elif char == "B":
             event.stop()
             self.action_next_bookmark()
-        elif (
-            self.numeric_branch_shortcuts
-            and char.isdigit()
-            and char != "0"
-        ):
+        elif self.numeric_branch_shortcuts and char.isdigit() and char != "0":
             event.stop()
             self._generate_worker(n_branches=int(char))
         elif self.numeric_branch_shortcuts and char in _SHIFT_DIGITS:

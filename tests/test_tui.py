@@ -518,7 +518,9 @@ async def test_e_ctrl_j_inserts_newline_in_inline_edit(store, tree):
 
 
 @pytest.mark.asyncio
-async def test_upper_e_full_edit_can_change_cross_node_boundary(store, tree, monkeypatch):
+async def test_upper_e_full_edit_can_change_cross_node_boundary(
+    store, tree, monkeypatch
+):
     from contextlib import contextmanager
 
     ab, _ = tree
@@ -756,7 +758,9 @@ async def test_upper_c_does_not_open_config_review_while_generating(store, tree)
 
 
 @pytest.mark.asyncio
-async def test_escape_while_generating_hides_stream_then_cancels(store, tree, monkeypatch):
+async def test_escape_while_generating_hides_stream_then_cancels(
+    store, tree, monkeypatch
+):
     import asyncio
 
     from textual.widgets import ContentSwitcher

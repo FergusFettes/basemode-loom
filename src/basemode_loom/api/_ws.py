@@ -193,12 +193,13 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                         {"type": "state", "state": state_to_dict(state)}
                     )
                     root = store.get(state.root_id)
-                    if root and root.metadata.get("name"):
+                    tree = store.tree_for_node(root.id) if root else None
+                    if root and tree and tree.name:
                         await websocket.send_json(
                             {
                                 "type": "tree_named",
                                 "root_id": root.id,
-                                "name": root.metadata["name"],
+                                "name": tree.name,
                             }
                         )
                 elif isinstance(event, GenerationError):
@@ -264,8 +265,7 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                     )
                     continue
                 session.apply_config_patch(patch)
-                if "context" not in patch:
-                    session.persist_config()
+                session.persist_config()
                 await push_state()
 
             elif msg_type == "generate":

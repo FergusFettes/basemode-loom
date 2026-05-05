@@ -111,7 +111,8 @@ def test_loom_export_md_prints_checked_out_path(tmp_path) -> None:
         max_tokens=20,
         temperature=0.9,
     )
-    store.update_metadata(parent.id, {"last_node_id": grandchild.id})
+    store.set_checked_out_child(parent.id, children[1].id)
+    store.set_checked_out_child(children[1].id, grandchild.id)
     store.set_active_node(parent.id)
 
     result = runner.invoke(app, ["export", "--to", "md", "--db", str(db)])

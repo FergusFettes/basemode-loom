@@ -112,9 +112,7 @@ def test_tree_picker_view_node_count_includes_root(multi_tree_store):
     view = TreePickerView()
     view.load(store, ab[0].root_id)
     # ab has root + 2 children = 3 nodes (roots() returns most-recent first)
-    ship_entry = next(
-        e for e in view._entries if e.root.metadata.get("name") == "ship-story"
-    )
+    ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert ship_entry.node_count == 3
 
 
@@ -122,9 +120,7 @@ def test_tree_picker_view_root_preview_text(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
     view.load(store, ab[0].root_id)
-    ship_entry = next(
-        e for e in view._entries if e.root.metadata.get("name") == "ship-story"
-    )
+    ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert "ship" in ship_entry.root_preview.lower()
 
 
@@ -150,9 +146,7 @@ def test_tree_picker_view_leaf_preview_none_when_only_root(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
     view.load(store, ab[0].root_id)
-    fairy_entry = next(
-        e for e in view._entries if e.root.metadata.get("name") == "fairy-tale"
-    )
+    fairy_entry = next(e for e in view._entries if e.name == "fairy-tale")
     # No last_node_id set yet on this tree
     assert fairy_entry.leaf_preview == "(at root)"
 
@@ -163,9 +157,7 @@ def test_tree_picker_view_leaf_preview_uses_last_node_id(multi_tree_store):
     store.update_metadata(ab[0].root_id, {"last_node_id": ab[0].id})
     view = TreePickerView()
     view.load(store, ab[0].root_id)
-    ship_entry = next(
-        e for e in view._entries if e.root.metadata.get("name") == "ship-story"
-    )
+    ship_entry = next(e for e in view._entries if e.name == "ship-story")
     assert ship_entry.leaf_preview != "(at root)"
 
 
@@ -173,7 +165,7 @@ def test_tree_picker_view_unnamed_tree_uses_id_prefix(multi_tree_store):
     store, ab, cd, ef = multi_tree_store
     view = TreePickerView()
     view.load(store, ab[0].root_id)
-    unnamed = next(e for e in view._entries if not e.root.metadata.get("name"))
+    unnamed = next(e for e in view._entries if not e.name)
     # Should display first 8 chars of node id
     assert len(unnamed.root.id[:8]) == 8
 
@@ -323,7 +315,7 @@ async def test_picker_shows_tree_names(multi_tree_store):
     async with app.run_test(headless=True) as pilot:
         await pilot.press("tab")
         view = app.screen.query_one(TreePickerView)
-        names = {e.root.metadata.get("name") for e in view._entries}
+        names = {e.name for e in view._entries}
         assert "ship-story" in names
         assert "fairy-tale" in names
 

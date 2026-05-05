@@ -381,7 +381,11 @@ def test_update_context_persists(store):
     session = LoomSession(store, ch[0].id)
     session.update_context("You are a pirate.")
     root = store.root(ch[0].id)
-    assert root.metadata["config"]["context"] == "You are a pirate."
+    assert root.context_id is not None
+    context = store.get(root.context_id)
+    assert context is not None
+    assert context.kind == "context"
+    assert context.text == "You are a pirate."
     assert "context" not in root.metadata
 
 
@@ -408,7 +412,8 @@ def test_save_persists_model_and_tokens(store):
     session.set_n_branches(3)
     session.save()
     root = store.root(ch[0].id)
-    assert root.metadata["config"]["model_plan"] == [
+    tree = store.tree_for_node(root.id)
+    assert tree.model_plan == [
         {
             "model": "claude-3",
             "max_tokens": 400,
@@ -417,7 +422,7 @@ def test_save_persists_model_and_tokens(store):
             "enabled": True,
         }
     ]
-    assert root.metadata["config"]["show_model_names"] is True
+    assert tree.show_model_names is True
     assert "model" not in root.metadata
     assert "max_tokens" not in root.metadata
     assert "n_branches" not in root.metadata
@@ -576,7 +581,9 @@ async def test_generate_error_propagated(store, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_generate_partial_failure_still_saves_successful_branches(store, monkeypatch):
+async def test_generate_partial_failure_still_saves_successful_branches(
+    store, monkeypatch
+):
     calls = 0
 
     async def mixed_continue(prefix, model, **kwargs):
@@ -735,7 +742,9 @@ async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch
     monkeypatch.setattr(
         "basemode_loom.session.detect_strategy", lambda model, _: _Strategy()
     )
-    monkeypatch.setattr("basemode_loom.session.estimate_usage", lambda *a, **k: _Usage())
+    monkeypatch.setattr(
+        "basemode_loom.session.estimate_usage", lambda *a, **k: _Usage()
+    )
     _, ch = store.save_continuations(
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )

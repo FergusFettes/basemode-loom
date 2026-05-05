@@ -66,7 +66,8 @@ class TreePickerScreen(ModalScreen[str | None]):
         from ..screens.confirm import ConfirmScreen
 
         root = self._store.root(root_id)
-        name = root.metadata.get("name") or root.id[:8]
+        tree = self._store.tree_for_node(root.id)
+        name = tree.name or root.id[:8]
 
         def after_confirm(confirmed: bool) -> None:
             if confirmed:

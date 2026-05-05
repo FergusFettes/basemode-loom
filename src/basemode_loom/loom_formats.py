@@ -20,6 +20,7 @@ class AnalysisNode:
     id: str
     parent_id: str | None
     root_id: str
+    kind: str = "text"
     text: str = ""
     model: str | None = None
     created_at: str | None = None
@@ -81,6 +82,7 @@ def _parse_basemode_export(data: dict[str, Any]) -> AnalysisTree:
             parent_id=_optional_str(raw.get("parent_id")),
             root_id=str(raw["root_id"]),
             text=str(raw.get("text", "")),
+            kind=str(raw.get("kind", "text")),
             model=_optional_str(raw.get("model")),
             created_at=_optional_str(raw.get("created_at")),
             branch_index=raw.get("branch_index"),
@@ -182,6 +184,7 @@ def _from_store_node(node: Node) -> AnalysisNode:
         parent_id=node.parent_id,
         root_id=node.root_id,
         text=node.text,
+        kind=node.kind,
         model=node.model,
         created_at=node.created_at,
         branch_index=node.branch_index,

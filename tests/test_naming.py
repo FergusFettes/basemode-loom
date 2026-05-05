@@ -48,7 +48,7 @@ def test_generate_name_sanitizes_model_output(monkeypatch) -> None:
     )
 
 
-def test_maybe_name_tree_updates_root_metadata(tmp_path, monkeypatch) -> None:
+def test_maybe_name_tree_updates_tree(tmp_path, monkeypatch) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
     _, children = store.save_continuations(
         "root ",
@@ -66,5 +66,6 @@ def test_maybe_name_tree_updates_root_metadata(tmp_path, monkeypatch) -> None:
     _maybe_name_tree(store, children)
 
     root = store.root(children[0].id)
-    assert root.metadata["name"] == "this-is-the-topic"
-    assert root.metadata["named_from"] == children[0].id
+    tree = store.tree_for_node(root.id)
+    assert tree.name == "this-is-the-topic"
+    assert tree.metadata["named_from"] == children[0].id
