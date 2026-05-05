@@ -73,13 +73,19 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
 
     persisted_root = store.root(root.id)
     persisted = persisted_root.metadata["config"]
-    assert persisted["model"] == "openai/gpt-4o-mini"
-    assert persisted["max_tokens"] == 512
-    assert persisted["temperature"] == 0.4
-    assert persisted["n_branches"] == 3
     assert persisted["context"] == "world facts"
     assert persisted["show_model_names"] is False
-    assert isinstance(persisted["model_plan"], list)
+    assert persisted["model_plan"] == [
+        {
+            "model": "openai/gpt-4o-mini",
+            "n_branches": 3,
+            "max_tokens": 512,
+            "temperature": 0.4,
+            "enabled": True,
+        }
+    ]
+    assert "model" not in persisted_root.metadata
+    assert "max_tokens" not in persisted_root.metadata
 
 
 def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
@@ -106,11 +112,19 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
         assert response.status_code == 200
         root_node = _root_node(response.json()["nodes"])
         meta = root_node["metadata"]
-        assert meta["model"] == "openai/gpt-4o"
-        assert meta["max_tokens"] == 600
-        assert meta["temperature"] == 0.7
-        assert meta["n_branches"] == 2
-        assert meta["config"]["max_tokens"] == 600
+        assert meta["config"]["model_plan"] == [
+            {
+                "model": "openai/gpt-4o",
+                "n_branches": 2,
+                "max_tokens": 600,
+                "temperature": 0.7,
+                "enabled": True,
+            }
+        ]
+        assert "model" not in meta
+        assert "max_tokens" not in meta
+        assert "temperature" not in meta
+        assert "n_branches" not in meta
 
 
 def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:

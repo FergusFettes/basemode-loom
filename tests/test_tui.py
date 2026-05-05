@@ -73,6 +73,8 @@ async def test_info_bar_shows_tokens_and_branches(store, tree):
         info_bar = app.screen.query_one("#status-bar", Static)
         assert "tokens:200" in str(info_bar.render())
         assert "branches/model:1 total:1" in str(info_bar.render())
+        assert "tree_cost:$0.000000" in str(info_bar.render())
+        assert "tree_toks:0" in str(info_bar.render())
 
         await pilot.press("w")
         await pilot.press("d")
@@ -184,6 +186,22 @@ async def test_k_wraps_to_last_sibling(store, tree):
     async with app.run_test(headless=True) as pilot:
         await pilot.press("k")
         assert session._selected_idx == 1
+
+
+@pytest.mark.asyncio
+async def test_arrow_keys_navigate_like_hjkl(store, tree):
+    ab, _c = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("left")
+        assert session._current_id == ab[0].parent_id
+        await pilot.press("down")
+        assert session._selected_idx == 1
+        await pilot.press("up")
+        assert session._selected_idx == 0
+        await pilot.press("right")
+        assert session._current_id == ab[0].id
 
 
 @pytest.mark.asyncio
@@ -341,6 +359,20 @@ async def test_d_updates_per_model_branches_across_model_plan(store, tree):
         assert session.n_branches == 6
 
 
+@pytest.mark.asyncio
+async def test_upper_d_deletes_selected_child(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    session.navigate_parent()
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("j")  # select B
+        await pilot.press("D")
+        state = session.get_state()
+        assert state.current_node_id == ab[0].parent_id
+        assert [c.text for c in state.children] == ["A"]
+
+
 # --- Modal screens ---
 
 
@@ -386,6 +418,137 @@ async def test_t_submit_updates_tokens(store, tree):
 
 
 @pytest.mark.asyncio
+async def test_e_enters_inline_edit_mode(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        assert "EDITING NODE" in app.screen.sub_title
+
+
+@pytest.mark.asyncio
+async def test_e_escape_dismisses_without_change(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    before = session.get_state().full_text
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("escape")
+        assert session.get_state().full_text == before
+        assert "EDIT pos:" not in app.screen.sub_title
+        assert isinstance(app.screen, LoomScreen)
+
+
+@pytest.mark.asyncio
+async def test_e_types_and_enter_applies_edit(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("backspace")
+        await pilot.press("x")
+        await pilot.press("enter")
+        state = session.get_state()
+        assert state.current_node.text == "x"
+        assert state.full_text.endswith("x")
+
+
+@pytest.mark.asyncio
+async def test_e_h_types_text_not_navigation(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    before_id = session.get_state().current_node_id
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("h")
+        await pilot.press("enter")
+        state = session.get_state()
+        assert state.current_node.text == "Ch"
+        assert state.full_text.endswith("ACh")
+        assert state.current_node.parent_id == ab[0].id
+        assert before_id != state.current_node_id
+
+
+@pytest.mark.asyncio
+async def test_e_backspace_stops_at_node_start(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("backspace")
+        await pilot.press("backspace")
+        await pilot.press("x")
+        await pilot.press("enter")
+        state = session.get_state()
+        assert state.current_node.text == "x"
+        assert state.full_text.endswith("x")
+
+
+@pytest.mark.asyncio
+async def test_e_shift_enter_inserts_newline_in_inline_edit(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("shift+enter")
+        await pilot.press("x")
+        await pilot.press("enter")
+        state = session.get_state()
+        assert state.current_node.text == "C\nx"
+
+
+@pytest.mark.asyncio
+async def test_e_ctrl_j_inserts_newline_in_inline_edit(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("e")
+        await pilot.press("ctrl+j")
+        await pilot.press("x")
+        await pilot.press("enter")
+        state = session.get_state()
+        assert state.current_node.text == "C\nx"
+
+
+@pytest.mark.asyncio
+async def test_upper_e_full_edit_can_change_cross_node_boundary(store, tree, monkeypatch):
+    from contextlib import contextmanager
+
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+
+    def fake_editor_run(cmd):
+        from pathlib import Path
+
+        path = Path(cmd[-1])
+        path.write_text("Root text A")
+
+    monkeypatch.setattr(
+        "basemode_loom.tui.screens.loom.subprocess.run", fake_editor_run
+    )
+
+    @contextmanager
+    def fake_suspend():
+        yield
+
+    monkeypatch.setattr(app, "suspend", fake_suspend)
+
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("E")
+        await pilot.pause()
+        await pilot.pause()
+        assert session.get_state().full_text == "Root text A"
+
+
+@pytest.mark.asyncio
 async def test_m_opens_model_picker(store, tree):
     from basemode_loom.tui.screens.model_picker import ModelPickerScreen
 
@@ -428,12 +591,40 @@ async def test_m_space_selects_multiple_models_and_enter_applies(
     )
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
+    session.set_model("model-a")
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("m")
-        await pilot.press("space")
+        await pilot.pause()
         await pilot.press("j")
         await pilot.press("space")
+        await pilot.press("enter")
+        await pilot.pause()
+        assert [p.model for p in session.model_plan] == ["model-a", "model-b"]
+
+
+@pytest.mark.asyncio
+async def test_model_picker_up_down_work_like_j_k(store, tree, monkeypatch):
+    entries = [
+        {"model": "model-a", "reliability": "✓"},
+        {"model": "model-b", "reliability": "✓"},
+    ]
+
+    monkeypatch.setattr(
+        "basemode.models.list_model_picker_entries",
+        lambda *args, **kwargs: entries,
+        raising=False,
+    )
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    session.set_model("model-a")
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.press("down")
+        await pilot.press("space")
+        await pilot.press("up")
         await pilot.press("enter")
         await pilot.pause()
         assert [p.model for p in session.model_plan] == ["model-a", "model-b"]
@@ -476,6 +667,126 @@ async def test_question_mark_does_not_open_stats_while_generating(store, tree):
             assert isinstance(app.screen, LoomScreen)
         finally:
             loom_screen._generating = False  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_upper_c_opens_config_review_screen(store, tree):
+    from basemode_loom.tui.screens.config_review import ConfigReviewScreen
+
+    ab, _ = tree
+    root = store.root(ab[0].id)
+    store.update_metadata(
+        root.id,
+        {
+            "name": "review-tree",
+            "config": {
+                "model": "model-a",
+                "max_tokens": 321,
+                "temperature": 0.7,
+                "n_branches": 2,
+                "context": "review context",
+                "show_model_names": False,
+            },
+        },
+    )
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("C")
+        assert isinstance(app.screen, ConfigReviewScreen)
+
+
+@pytest.mark.asyncio
+async def test_config_review_screen_upper_c_dismisses(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("C")
+        await pilot.press("C")
+        assert isinstance(app.screen, LoomScreen)
+
+
+@pytest.mark.asyncio
+async def test_config_review_screen_r_toggles_raw_json(store, tree):
+    from rich.json import JSON
+
+    from basemode_loom.tui.screens.config_review import ConfigReviewScreen
+
+    ab, _ = tree
+    root = store.root(ab[0].id)
+    store.update_metadata(
+        root.id,
+        {
+            "config": {
+                "model": "model-a",
+                "max_tokens": 321,
+            }
+        },
+    )
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        await pilot.press("C")
+        assert isinstance(app.screen, ConfigReviewScreen)
+        assert app.screen._raw is False  # type: ignore[attr-defined]
+
+        await pilot.press("r")
+        assert app.screen._raw is True  # type: ignore[attr-defined]
+        assert isinstance(app.screen._render_content(), JSON)  # type: ignore[attr-defined]
+
+        await pilot.press("r")
+        assert app.screen._raw is False  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_upper_c_does_not_open_config_review_while_generating(store, tree):
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+    async with app.run_test(headless=True) as pilot:
+        loom_screen = app.screen
+        assert isinstance(loom_screen, LoomScreen)
+        loom_screen._generating = True  # type: ignore[attr-defined]
+        try:
+            await pilot.press("C")
+            assert isinstance(app.screen, LoomScreen)
+        finally:
+            loom_screen._generating = False  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_escape_while_generating_hides_stream_then_cancels(store, tree, monkeypatch):
+    import asyncio
+
+    from textual.widgets import ContentSwitcher
+
+    async def slow_continue(prefix, model, **kwargs):
+        while True:
+            await asyncio.sleep(1)
+            yield "t"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", slow_continue)
+    ab, _ = tree
+    session = LoomSession(store, ab[0].id)
+    app = BasemodeApp(session)
+
+    async with app.run_test(headless=True) as pilot:
+        loom_screen = app.screen
+        assert isinstance(loom_screen, LoomScreen)
+        loom_screen.action_generate()
+        await pilot.pause()
+        assert app.screen._generating is True
+
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.screen.query_one(ContentSwitcher).current == "loom"
+        assert app.screen._generating is True
+
+        await pilot.press("escape")
+        await pilot.pause()
+        await pilot.pause()
+        assert app.screen._generating is False
 
 
 # --- Quit ---

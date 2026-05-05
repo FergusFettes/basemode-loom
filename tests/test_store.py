@@ -102,6 +102,91 @@ def test_update_metadata_merges_existing_values(tmp_path) -> None:
     assert store.get(root.id).metadata["name"] == "this-is-the-topic"
 
 
+def test_store_migrates_root_config_metadata_to_model_plan(tmp_path) -> None:
+    db = tmp_path / "generations.sqlite"
+    store = GenerationStore(db)
+    root = store.create_root(
+        "root",
+        metadata={
+            "config": {
+                "model": "model-a",
+                "max_tokens": 123,
+                "temperature": 0.4,
+                "n_branches": 2,
+                "context": "ctx",
+                "show_model_names": False,
+            },
+            "model": "model-a",
+            "max_tokens": 123,
+            "temperature": 0.4,
+            "n_branches": 2,
+            "context": "ctx",
+            "show_model_names": False,
+            "name": "root-name",
+        },
+    )
+    with store.connect() as conn:
+        conn.execute("PRAGMA user_version = 1")
+
+    migrated = GenerationStore(db).get(root.id)
+    assert migrated is not None
+    assert migrated.metadata == {
+        "config": {
+            "context": "ctx",
+            "show_model_names": False,
+            "model_plan": [
+                {
+                    "model": "model-a",
+                    "n_branches": 2,
+                    "max_tokens": 123,
+                    "temperature": 0.4,
+                    "enabled": True,
+                }
+            ],
+        },
+        "name": "root-name",
+    }
+
+
+def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    root = Node(
+        id="root",
+        parent_id=None,
+        root_id="root",
+        text="root",
+        model=None,
+        strategy=None,
+        max_tokens=None,
+        temperature=None,
+        branch_index=None,
+        created_at="now",
+        metadata={
+            "model": "model-a",
+            "max_tokens": 123,
+            "temperature": 0.4,
+            "n_branches": 2,
+        },
+    )
+
+    store.import_nodes([root])
+    imported = store.get("root")
+    assert imported is not None
+    assert imported.metadata == {
+        "config": {
+            "model_plan": [
+                {
+                    "model": "model-a",
+                    "n_branches": 2,
+                    "max_tokens": 123,
+                    "temperature": 0.4,
+                    "enabled": True,
+                }
+            ]
+        }
+    }
+
+
 def test_get_resolves_unique_id_substrings(tmp_path) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
     root = store.create_root("root")
@@ -188,6 +273,46 @@ def test_delete_tree_removes_nodes_and_related_state(tmp_path) -> None:
     assert store.roots() == [other_root]
     assert store.get_active_node_id() is None
     assert store.get_checked_out_child_id(root.id) is None
+
+
+def test_delete_subtree_removes_branch_and_related_state(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    root = store.create_root("root")
+    left = store.add_child(
+        root.id,
+        " left",
+        model="gpt-4o-mini",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.7,
+    )
+    right = store.add_child(
+        root.id,
+        " right",
+        model="gpt-4o-mini",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.7,
+    )
+    leaf = store.add_child(
+        left.id,
+        " leaf",
+        model="gpt-4o-mini",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.7,
+    )
+    store.set_checked_out_child(root.id, left.id)
+    store.set_checked_out_child(left.id, leaf.id)
+
+    deleted = store.delete_subtree(left.id)
+
+    assert deleted == 2
+    assert store.get(left.id) is None
+    assert store.get(leaf.id) is None
+    assert store.get(right.id) is not None
+    assert store.get_checked_out_child_id(root.id) is None
+    assert store.get_checked_out_child_id(left.id) is None
 
 
 def test_select_branch_is_one_based(tmp_path) -> None:

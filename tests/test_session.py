@@ -298,6 +298,79 @@ def test_apply_edit_forks_at_changed_segment(store):
     assert store.full_text(new_node.id) == "Hello earth again"
 
 
+def test_edit_node_text_updates_selected_node_segment(store):
+    _, ch = store.save_continuations(
+        "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    edited = session.edit_node_text(ch[0].id, " earth")
+    assert edited is not None
+    state = session.get_state()
+    assert state.current_node.text == " earth"
+    assert state.full_text == "Hello earth"
+
+
+def test_edit_node_text_does_not_use_full_text_diff_path(store, monkeypatch):
+    _, ch = store.save_continuations(
+        "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+
+    def fail_apply(*_args, **_kwargs):
+        raise AssertionError("should not call apply_edit for node edit")
+
+    monkeypatch.setattr(session, "apply_edit", fail_apply)
+    edited = session.edit_node_text(ch[0].id, " earth")
+    assert edited is not None
+    assert session.get_state().full_text == "Hello earth"
+
+
+def test_delete_selected_child_removes_selected_subtree_and_keeps_parent(store):
+    root = store.create_root("Root")
+    left = store.add_child(
+        root.id,
+        " left",
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+        branch_index=0,
+    )
+    right = store.add_child(
+        root.id,
+        " right",
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+        branch_index=1,
+    )
+    leaf = store.add_child(
+        left.id,
+        " leaf",
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    session = LoomSession(store, root.id)
+    session.select_sibling(+1)  # select right
+    assert session.delete_selected_child() is True
+    state = session.get_state()
+    assert state.current_node_id == root.id
+    assert [c.id for c in state.children] == [left.id]
+    assert state.selected_child_idx == 0
+    assert store.get(right.id) is None
+    assert store.get(left.id) is not None
+    assert store.get(leaf.id) is not None
+
+
+def test_delete_selected_child_no_children_is_false(store):
+    root = store.create_root("Root")
+    session = LoomSession(store, root.id)
+    assert session.delete_selected_child() is False
+
+
 # --- update_context ---
 
 
@@ -308,7 +381,8 @@ def test_update_context_persists(store):
     session = LoomSession(store, ch[0].id)
     session.update_context("You are a pirate.")
     root = store.root(ch[0].id)
-    assert root.metadata["context"] == "You are a pirate."
+    assert root.metadata["config"]["context"] == "You are a pirate."
+    assert "context" not in root.metadata
 
 
 def test_update_context_visible_in_state(store):
@@ -334,10 +408,20 @@ def test_save_persists_model_and_tokens(store):
     session.set_n_branches(3)
     session.save()
     root = store.root(ch[0].id)
-    assert root.metadata["model"] == "claude-3"
-    assert root.metadata["max_tokens"] == 400
-    assert root.metadata["n_branches"] == 3
-    assert root.metadata["show_model_names"] is True
+    assert root.metadata["config"]["model_plan"] == [
+        {
+            "model": "claude-3",
+            "max_tokens": 400,
+            "n_branches": 3,
+            "temperature": 0.9,
+            "enabled": True,
+        }
+    ]
+    assert root.metadata["config"]["show_model_names"] is True
+    assert "model" not in root.metadata
+    assert "max_tokens" not in root.metadata
+    assert "n_branches" not in root.metadata
+    assert "show_model_names" not in root.metadata
 
 
 def test_save_persists_model_name_visibility(store):
@@ -488,6 +572,77 @@ async def test_generate_error_propagated(store, monkeypatch):
     error_events = [e for e in events if isinstance(e, GenerationError)]
     assert len(error_events) == 1
     assert "API down" in str(error_events[0].error)
+    assert not any(isinstance(e, GenerationComplete) for e in events)
+
+
+@pytest.mark.asyncio
+async def test_generate_partial_failure_still_saves_successful_branches(store, monkeypatch):
+    calls = 0
+
+    async def mixed_continue(prefix, model, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            yield "ok"
+            return
+        raise RuntimeError("branch failed")
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", mixed_continue)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 2
+
+    events = []
+    async for event in session.generate():
+        events.append(event)
+
+    complete_events = [e for e in events if isinstance(e, GenerationComplete)]
+    error_events = [e for e in events if isinstance(e, GenerationError)]
+    assert len(complete_events) == 1
+    assert len(complete_events[0].new_nodes) == 1
+    assert complete_events[0].new_nodes[0].text == "ok"
+    assert len(error_events) == 1
+    assert "branch failed" in str(error_events[0].error)
+
+    new_children = store.children(ch[0].id)
+    assert len(new_children) == 1
+    assert new_children[0].text == "ok"
+
+
+@pytest.mark.asyncio
+async def test_generate_saves_to_source_node_even_if_current_moves(store, monkeypatch):
+    import asyncio
+
+    gate = asyncio.Event()
+
+    async def gated_continue(prefix, model, **kwargs):
+        await gate.wait()
+        yield "done"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", gated_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    source_id = session.get_state().current_node_id
+
+    async def run():
+        events = []
+        async for event in session.generate():
+            events.append(event)
+        return events
+
+    task = asyncio.create_task(run())
+    await asyncio.sleep(0)
+    session.navigate_parent()
+    gate.set()
+    events = await task
+
+    assert any(isinstance(e, GenerationComplete) for e in events)
+    source_children = store.children(source_id)
+    assert any(c.text == "done" for c in source_children)
 
 
 @pytest.mark.asyncio
@@ -513,6 +668,29 @@ async def test_generate_multiple_branches(store, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_generate_shuffles_completion_order(store, monkeypatch):
+    async def fake_continue(prefix, model, **kwargs):
+        yield "x"
+
+    def reverse(items):
+        items.reverse()
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    monkeypatch.setattr("basemode_loom.session.random.shuffle", reverse)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 3
+
+    async for _event in session.generate():
+        pass
+
+    new_children = store.children(ch[0].id)
+    assert [c.metadata["model_branch_index"] for c in new_children] == [2, 1, 0]
+
+
+@pytest.mark.asyncio
 async def test_generate_accepts_forced_openrouter_model(store, monkeypatch):
     async def fake_continue(prefix, model, **kwargs):
         assert model == "openrouter/moonshotai/kimi-k2.6"
@@ -535,3 +713,48 @@ async def test_generate_accepts_forced_openrouter_model(store, monkeypatch):
     async for event in session.generate():
         if isinstance(event, GenerationComplete):
             assert event.new_nodes[0].model == "openrouter/moonshotai/kimi-k2.6"
+
+
+@pytest.mark.asyncio
+async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch):
+    async def fake_continue(prefix, model, **kwargs):
+        yield "generated"
+
+    class _Strategy:
+        name = "system"
+
+    class _Usage:
+        model = "gpt-4o-mini"
+        prompt_tokens = 12
+        completion_tokens = 7
+        total_tokens = 19
+        cost_usd = 0.00123
+        pricing_available = True
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    monkeypatch.setattr(
+        "basemode_loom.session.detect_strategy", lambda model, _: _Strategy()
+    )
+    monkeypatch.setattr("basemode_loom.session.estimate_usage", lambda *a, **k: _Usage())
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    children = store.children(ch[0].id)
+    assert len(children) == 1
+    usage = children[0].metadata["usage"]
+    assert usage["prompt_tokens"] == 12
+    assert usage["completion_tokens"] == 7
+    assert usage["total_tokens"] == 19
+    assert usage["cost_usd"] == pytest.approx(0.00123)
+    assert usage["pricing_available"] is True
+
+    state = session.get_state()
+    assert state.tree_total_tokens == 19
+    assert state.tree_cost_usd == pytest.approx(0.00123)
+    assert state.tree_pricing_complete is True
