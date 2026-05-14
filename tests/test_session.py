@@ -378,13 +378,13 @@ def test_update_context_persists(store):
     )
     session = LoomSession(store, ch[0].id)
     session.update_context("You are a pirate.")
-    root = store.root(ch[0].id)
-    assert root.context_id is not None
-    context = store.get(root.context_id)
+    current = store.get(ch[0].id)
+    assert current is not None
+    assert current.context_id is not None
+    context = store.get(current.context_id)
     assert context is not None
     assert context.kind == "context"
     assert context.text == "You are a pirate."
-    assert "context" not in root.metadata
 
 
 def test_update_context_visible_in_state(store):

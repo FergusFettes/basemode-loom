@@ -71,6 +71,14 @@ GenerationEvent = (
 )
 
 
+@dataclass(frozen=True)
+class PromptEntry:
+    model: str
+    strategy: str
+    prefix: str
+    messages: tuple[tuple[str, str], ...] | None
+
+
 # ---------------------------------------------------------------------------
 # State snapshot consumed by UI layers
 # ---------------------------------------------------------------------------
@@ -92,6 +100,7 @@ class SessionState:
     context: str
     root_id: str
     view_mode: Literal["branch", "tree"] = "branch"
+    prompt_entries: tuple[PromptEntry, ...] = field(default_factory=tuple)
     hoisted_node_id: str | None = None
     tree_nodes: list[Node] | None = None
     show_model_names: bool = True
@@ -189,6 +198,9 @@ class LoomSession:
             tree_total_tokens=tree_total_tokens,
             tree_cost_usd=tree_cost_usd,
             tree_pricing_complete=tree_pricing_complete,
+            prompt_entries=self._build_prompt_entries(
+                store.full_text(self._current_id), self._current_context(node)
+            ),
         )
 
     def _get_continuation_text(self, selected_child: Node) -> str:
@@ -626,12 +638,14 @@ class LoomSession:
         return new_node
 
     def update_context(self, context: str) -> None:
-        root_node = self._store.root(self._current_id)
+        node = self._store.get(self._current_id)
+        if node is None:
+            return
         if context:
-            context_node = self._store.create_context(root_node.tree_id, context)
-            self._store.set_node_context(root_node.id, context_node.id)
+            context_node = self._store.create_context(node.tree_id, context)
+            self._store.set_node_context(node.id, context_node.id)
         else:
-            self._store.set_node_context(root_node.id, None)
+            self._store.set_node_context(node.id, None)
 
     def apply_config_patch(self, config_patch: dict[str, Any]) -> None:
         if "model_plan" in config_patch:
@@ -820,15 +834,37 @@ class LoomSession:
             pricing_complete,
         )
 
+    def _build_prompt_entries(
+        self, prefix: str, context: str
+    ) -> tuple[PromptEntry, ...]:
+        entries = []
+        for plan in self._model_plan:
+            if not plan.enabled:
+                continue
+            model_id = resolve_model_id(plan.model)
+            strategy = detect_strategy(model_id, None).name
+            raw_prefix, raw_messages = _usage_prompt(model_id, prefix, strategy, context)
+            messages = (
+                tuple((m["role"], m["content"]) for m in raw_messages)
+                if raw_messages is not None
+                else None
+            )
+            entries.append(
+                PromptEntry(
+                    model=plan.model,
+                    strategy=strategy,
+                    prefix=raw_prefix,
+                    messages=messages,
+                )
+            )
+        return tuple(entries)
+
     def _current_context(self, node: Node) -> str:
-        context_id = node.context_id
-        if context_id is None:
-            root = self._store.root(node.id)
-            context_id = root.context_id
-        if context_id:
-            context = self._store.get(context_id)
-            if context is not None and context.kind == "context":
-                return context.text
+        for ancestor in reversed(self._store.lineage(node.id)):
+            if ancestor.context_id:
+                context = self._store.get(ancestor.context_id)
+                if context is not None and context.kind == "context":
+                    return context.text
         return ""
 
     def _persist_tree_settings(self) -> None:
@@ -900,7 +936,7 @@ class LoomSession:
 
 
 def _usage_prompt(
-    model: str, prefix: str, strategy: str
+    model: str, prefix: str, strategy: str, context: str = ""
 ) -> tuple[str, list[dict[str, str]] | None]:
     from basemode.healing import normalize_prefix
     from basemode.strategies.few_shot import _SYSTEM_PROMPT as FEW_SHOT_SYSTEM_PROMPT
@@ -908,27 +944,30 @@ def _usage_prompt(
     from basemode.strategies.prefill import SEED_LEN
     from basemode.strategies.system import SYSTEM_PROMPT
 
+    def _with_context(system: str) -> str:
+        if context:
+            return system + f"\n\n<CONTEXT>\n{context}\n</CONTEXT>"
+        return system
+
     if strategy == "system":
         return "", [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": _with_context(SYSTEM_PROMPT)},
             {"role": "user", "content": normalize_prefix(prefix)},
         ]
     if strategy == "few_shot":
         return "", [
-            {"role": "system", "content": FEW_SHOT_SYSTEM_PROMPT},
+            {"role": "system", "content": _with_context(FEW_SHOT_SYSTEM_PROMPT)},
             {"role": "user", "content": normalize_prefix(prefix)},
         ]
     if strategy == "prefill":
+        system = (
+            "You are continuing the following text. "
+            "Output only the continuation - no preamble, no commentary.\n\n"
+            f"Text to continue:\n{prefix}"
+        )
         seed = prefix[-SEED_LEN:] if len(prefix) > SEED_LEN else prefix
         return "", [
-            {
-                "role": "system",
-                "content": (
-                    "You are continuing the following text. "
-                    "Output only the continuation - no preamble, no commentary.\n\n"
-                    f"Text to continue:\n{prefix}"
-                ),
-            },
+            {"role": "system", "content": _with_context(system)},
             {"role": "user", "content": "[continue]"},
             {"role": "assistant", "content": seed},
         ]

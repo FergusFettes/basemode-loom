@@ -52,23 +52,24 @@ def _build_bindings(km: KeyMap = DEFAULT_CONFIG.keys) -> list[Binding]:
         Binding(km.word_next, "word_next", "word▶", show=False),
         Binding(km.generate, "generate", "Generate"),
         Binding(km.quick_generate, "quick_generate", "Quick gen", show=False),
-        Binding(km.edit, "edit", "Edit"),
+        Binding(km.edit, "edit", "Edit", show=False),
         Binding(km.edit_full, "edit_full", "Full edit", show=False),
         Binding(km.edit_context, "edit_context", "Context", show=False),
-        Binding(km.pick_model, "pick_model", "Model"),
+        Binding(km.pick_model, "pick_model", "Model", show=False),
         Binding(km.tokens_up, "tokens_up", "+tok", show=False),
         Binding(km.tokens_down, "tokens_down", "-tok", show=False),
-        Binding(km.set_tokens, "set_tokens", "Tokens"),
+        Binding(km.set_tokens, "set_tokens", "Tokens", show=False),
         Binding(km.branches_up, "branches_up", "+n", show=False),
         Binding(km.branches_down, "branches_down", "-n", show=False),
-        Binding(km.toggle_tree_view, "toggle_tree_view", "Tree"),
+        Binding(km.toggle_tree_view, "toggle_tree_view", "View", show=False),
         Binding(km.toggle_model_names, "toggle_model_names", "Names", show=False),
         Binding(km.toggle_hoist, "toggle_hoist", "Hoist", show=False),
         Binding(km.toggle_bookmark, "toggle_bookmark", "Bookmark", show=False),
         Binding(km.next_bookmark, "next_bookmark", "Next mark", show=False),
-        Binding(km.open_picker, "open_picker", "Trees"),
-        Binding(km.open_stats, "open_stats", "Stats"),
-        Binding(km.open_config_review, "open_config_review", "Config"),
+        Binding(km.open_picker, "open_picker", "Trees", show=False),
+        Binding(km.open_stats, "open_stats", "?", show=False),
+        Binding(km.open_config_review, "open_config_review", "Config", show=False),
+        Binding(km.open_prompt, "open_prompt", "Prompt", show=False),
         Binding("D", "delete_selected_child", "Del child", show=False),
         Binding(km.quit, "quit", "Quit"),
         Binding(km.cancel_or_quit, "cancel_or_quit", "Cancel", show=False),
@@ -145,30 +146,31 @@ class LoomScreen(Screen):
         tree_cost = f"${state.tree_cost_usd:.6f}"
         if not state.tree_pricing_complete:
             tree_cost += "*"
-        short_model = s.model.split("/")[-1]
+        enabled_models = "/".join(
+            e.model.split("/")[-1]
+            for e in state.model_plan
+            if e.enabled
+        ) or s.model.split("/")[-1]
         if self._edit_mode:
             node_label = (self._edit_node_id or s._current_id)[:8]
             info = (
-                f"{s._current_id[:8]} {short_model}  "
+                f"{s._current_id[:8]} {enabled_models}  "
                 f"EDITING NODE {node_label}  "
                 "type text  ←/→ move  backspace delete  enter apply  S+enter/Ctrl+J newline  esc cancel"
             )
         elif self._cursor_word_idx is not None:
             km = self.keymap
             info = (
-                f"{s._current_id[:8]} {short_model}  "
+                f"{s._current_id[:8]} {enabled_models}  "
                 f"CURSOR  {km.word_prev}: ◀word  {km.word_next}: ▶word  "
                 f"{km.generate}: truncate+gen  {km.cancel_or_quit}: cancel"
             )
         else:
             info = (
-                f"{s._current_id[:8]} {short_model}  "
-                f"tokens:{s.max_tokens} branches/model:{s.branches_per_model} total:{s.n_branches}  "
-                f"tree_cost:{tree_cost} tree_toks:{state.tree_total_tokens}  "
-                f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''} "
-                f"names:{'on' if s.show_model_names else 'off'}  "
-                "hjkl nav  space gen  1-9: N branches  S+space: 10tok  "
-                "e edit  E full-edit  v view  b mark  tab trees  C config  ? stats  q quit"
+                f"{s._current_id[:8]} {enabled_models}  "
+                f"tok:{s.max_tokens} br:{s.branches_per_model} "
+                f"cost:{tree_cost} "
+                f"view:{s.view_mode}{' hoist' if s._hoisted_id else ''}"
             )
         if self._generating:
             info += "  GEN:running (Esc hide, Esc again cancel)"
@@ -271,6 +273,14 @@ class LoomScreen(Screen):
     def action_toggle_tree_view(self) -> None:
         self.session.toggle_tree_view()
         self._refresh()
+
+    def action_open_prompt(self) -> None:
+        if self._generating:
+            return
+        from ..screens.prompt_screen import PromptScreen
+
+        state = self.session.get_state()
+        self.app.push_screen(PromptScreen(state.prompt_entries))
 
     def action_toggle_model_names(self) -> None:
         self.session.toggle_model_names()
@@ -410,14 +420,16 @@ class LoomScreen(Screen):
 
     async def action_edit_context(self) -> None:
         state = self.session.get_state()
+        original = state.context
         with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
-            f.write(state.context)
+            f.write(original)
             tmpfile = f.name
         with self.app.suspend():
             subprocess.run([os.environ.get("EDITOR", "vim"), tmpfile])
         new_context = Path(tmpfile).read_text().rstrip("\n")
         Path(tmpfile).unlink(missing_ok=True)
-        self.session.update_context(new_context)
+        if new_context != original:
+            self.session.update_context(new_context)
 
     # --- Tree picker ---
 
@@ -446,8 +458,16 @@ class LoomScreen(Screen):
     def action_open_stats(self) -> None:
         if self._generating:
             return
+        self._open_info_screen("tab-keys")
+
+    def action_open_config_review(self) -> None:
+        if self._generating:
+            return
+        self._open_info_screen("tab-config")
+
+    def _open_info_screen(self, initial_tab: str) -> None:
         from ...stats import analyze_tree
-        from ..screens.stats import StatsScreen
+        from ..screens.info import InfoScreen
 
         state = self.session.get_state()
         stats = analyze_tree(
@@ -455,16 +475,10 @@ class LoomScreen(Screen):
             state.root_id,
             path_node_id=state.current_node_id,
         )
-        self.app.push_screen(StatsScreen(stats))
-
-    def action_open_config_review(self) -> None:
-        if self._generating:
-            return
-        from ..screens.config_review import ConfigReviewScreen
-
-        state = self.session.get_state()
         root = self.session.store.root(state.root_id)
-        self.app.push_screen(ConfigReviewScreen(self.session.store, root))
+        self.app.push_screen(
+            InfoScreen(stats, self.session.store, root, self.keymap, initial_tab)
+        )
 
     def action_delete_selected_child(self) -> None:
         if self._generating or self._edit_mode:

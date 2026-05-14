@@ -71,16 +71,15 @@ async def test_info_bar_shows_tokens_and_branches(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         info_bar = app.screen.query_one("#status-bar", Static)
-        assert "tokens:200" in str(info_bar.render())
-        assert "branches/model:1 total:1" in str(info_bar.render())
-        assert "tree_cost:$0.000000" in str(info_bar.render())
-        assert "tree_toks:0" in str(info_bar.render())
+        assert "tok:200" in str(info_bar.render())
+        assert "br:1" in str(info_bar.render())
+        assert "cost:$0.000000" in str(info_bar.render())
 
         await pilot.press("w")
         await pilot.press("d")
 
-        assert "tokens:250" in str(info_bar.render())
-        assert "branches/model:2 total:2" in str(info_bar.render())
+        assert "tok:250" in str(info_bar.render())
+        assert "br:2" in str(info_bar.render())
 
 
 # --- Navigation ---
@@ -633,25 +632,26 @@ async def test_model_picker_up_down_work_like_j_k(store, tree, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_question_mark_opens_stats_screen(store, tree):
-    from basemode_loom.tui.screens.stats import StatsScreen
+async def test_question_mark_opens_info_screen(store, tree):
+    from basemode_loom.tui.screens.info import InfoScreen
 
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("?")
-        assert isinstance(app.screen, StatsScreen)
+        assert isinstance(app.screen, InfoScreen)
+        assert app.screen.query_one("#info-tabs").active == "tab-keys"
 
 
 @pytest.mark.asyncio
-async def test_stats_screen_escape_dismisses(store, tree):
+async def test_info_screen_q_dismisses(store, tree):
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("?")
-        await pilot.press("escape")
+        await pilot.press("q")
         assert isinstance(app.screen, LoomScreen)
 
 
@@ -672,8 +672,8 @@ async def test_question_mark_does_not_open_stats_while_generating(store, tree):
 
 
 @pytest.mark.asyncio
-async def test_upper_c_opens_config_review_screen(store, tree):
-    from basemode_loom.tui.screens.config_review import ConfigReviewScreen
+async def test_upper_c_opens_info_screen_on_config_tab(store, tree):
+    from basemode_loom.tui.screens.info import InfoScreen
 
     ab, _ = tree
     root = store.root(ab[0].id)
@@ -695,25 +695,26 @@ async def test_upper_c_opens_config_review_screen(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("C")
-        assert isinstance(app.screen, ConfigReviewScreen)
+        assert isinstance(app.screen, InfoScreen)
+        assert app.screen.query_one("#info-tabs").active == "tab-config"
 
 
 @pytest.mark.asyncio
-async def test_config_review_screen_upper_c_dismisses(store, tree):
+async def test_info_screen_escape_dismisses(store, tree):
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
-        await pilot.press("C")
-        await pilot.press("C")
+        await pilot.press("?")
+        await pilot.press("escape")
         assert isinstance(app.screen, LoomScreen)
 
 
 @pytest.mark.asyncio
-async def test_config_review_screen_r_toggles_raw_json(store, tree):
+async def test_info_screen_r_toggles_raw_json_on_config_tab(store, tree):
     from rich.json import JSON
 
-    from basemode_loom.tui.screens.config_review import ConfigReviewScreen
+    from basemode_loom.tui.screens.info import InfoScreen
 
     ab, _ = tree
     root = store.root(ab[0].id)
@@ -730,19 +731,19 @@ async def test_config_review_screen_r_toggles_raw_json(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("C")
-        assert isinstance(app.screen, ConfigReviewScreen)
+        assert isinstance(app.screen, InfoScreen)
         assert app.screen._raw is False  # type: ignore[attr-defined]
 
         await pilot.press("r")
         assert app.screen._raw is True  # type: ignore[attr-defined]
-        assert isinstance(app.screen._render_content(), JSON)  # type: ignore[attr-defined]
+        assert isinstance(app.screen._render_config(), JSON)  # type: ignore[attr-defined]
 
         await pilot.press("r")
         assert app.screen._raw is False  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
-async def test_upper_c_does_not_open_config_review_while_generating(store, tree):
+async def test_upper_c_does_not_open_info_screen_while_generating(store, tree):
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
     app = BasemodeApp(session)

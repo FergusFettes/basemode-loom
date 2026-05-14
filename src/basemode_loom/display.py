@@ -26,7 +26,7 @@ TREE_BLANK = "   "
 class DisplaySpan:
     start: int
     end: int
-    style: Literal["model"]
+    style: Literal["model", "context"]
 
 
 @dataclass(frozen=True)
@@ -143,6 +143,7 @@ def build_tree_display(state: SessionState, width: int) -> list[DisplayLine]:
             bookmarked=bool(node.metadata.get("bookmarked")),
             descendants=descendant_counts.get(node.id, 0),
             show_model=state.show_model_names,
+            has_context=node.context_id is not None,
             width=max(10, width - len(line_prefix)),
         )
         if node.id == state.current_node_id:
@@ -216,20 +217,25 @@ def _tree_node_label(
     bookmarked: bool,
     descendants: int,
     show_model: bool,
+    has_context: bool,
     width: int,
 ) -> DisplayLine:
     cursor = ">" if current else "*" if selected else " "
     bookmark = "b" if bookmarked else " "
     count = f" +{descendants}" if descendants else ""
+    context_marker = "C " if has_context else ""
     model = _short_model_name(node.model) if show_model and node.model else ""
     model_prefix = f"{model} " if model else ""
-    fixed = f"{cursor}{bookmark} {model_prefix}{count} "
+    fixed = f"{cursor}{bookmark} {context_marker}{model_prefix}{count} "
     text = fixed + _flatten_preview(node.text, width - len(fixed))
-    spans: tuple[DisplaySpan, ...] = ()
+    spans: list[DisplaySpan] = []
+    after_prefix = len(f"{cursor}{bookmark} ")
+    if has_context:
+        spans.append(DisplaySpan(after_prefix, after_prefix + 1, "context"))
     if model:
-        start = len(f"{cursor}{bookmark} ")
-        spans = (DisplaySpan(start, start + len(model), "model"),)
-    return DisplayLine(text, "normal", spans)
+        start = after_prefix + len(context_marker)
+        spans.append(DisplaySpan(start, start + len(model), "model"))
+    return DisplayLine(text, "normal", tuple(spans))
 
 
 def _short_model_name(model: str | None) -> str:

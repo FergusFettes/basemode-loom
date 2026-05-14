@@ -73,6 +73,7 @@ class KeyMap:
     open_picker: str = "tab"
     open_stats: str = "?"
     open_config_review: str = "C"
+    open_prompt: str = "p"
     quit: str = "q"
     cancel_or_quit: str = "escape"
 

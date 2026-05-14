@@ -18,6 +18,7 @@ _STYLES = {
     "current": Style(color="black", bgcolor="cyan", bold=True),
     "selected": Style(color="yellow", bold=True),
     "model": Style(color="magenta", bold=True),
+    "context": Style(color="green", bold=True),
 }
 
 
