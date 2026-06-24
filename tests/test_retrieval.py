@@ -88,6 +88,35 @@ def test_search_matches_child_text(fts_store):
     assert store.get(hits[0].best_node_id).tree_id == cat[0].tree_id
 
 
+def test_search_matches_node_id_without_index(store):
+    _, children = store.save_continuations(
+        "the ship rounded the headland",
+        [" and sailed on"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    child = children[0]
+    hits = KeywordBackend(store).search(child.id)
+    assert [h.tree_id for h in hits] == [child.tree_id]
+    assert hits[0].best_node_id == child.id
+
+
+def test_search_matches_node_id_prefix_without_index(store):
+    _, children = store.save_continuations(
+        "the ship rounded the headland",
+        [" and sailed on"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    child = children[0]
+    hits = KeywordBackend(store).search(child.id[:8])
+    assert [h.tree_id for h in hits] == [child.tree_id]
+
+
 def test_search_rolls_up_multiple_node_hits_to_one_tree(fts_store):
     store, cat, dog = fts_store
     # Both "cat" (root) and "feline" (child) live in tree A; one TreeHit.
@@ -116,6 +145,27 @@ def test_search_without_index_returns_nothing(store):
         temperature=0.9,
     )
     assert KeywordBackend(store).search("ship") == []
+
+
+def test_semantic_results_are_rolled_up_to_trees(fts_store):
+    store, cat, dog = fts_store
+    backend = KeywordBackend(store)
+    backend._semantic_status = lambda: (True, "")  # type: ignore[method-assign]
+    backend._semantic_node_ids = lambda query, limit: [dog[0].id]  # type: ignore[method-assign]
+
+    hits = backend.search("horticulture")
+
+    assert [h.tree_id for h in hits] == [dog[0].tree_id]
+
+
+def test_status_reports_vec_dependency_message(store):
+    with closing(store.connect()) as conn, conn:
+        conn.execute("CREATE TABLE nodes_vec(node_id TEXT PRIMARY KEY, embedding BLOB)")
+
+    status = KeywordBackend(store).status()
+
+    assert status.semantic is False
+    assert "semantic index present" in status.message
 
 
 def test_get_backend_returns_keyword_backend(store):

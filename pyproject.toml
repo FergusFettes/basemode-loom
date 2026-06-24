@@ -17,6 +17,10 @@ dependencies = [
     "uvicorn[standard]>=0.30.0",
 ]
 
+[project.optional-dependencies]
+embed = ["sqlite-vec>=0.1.6"]
+embed-mlx = ["sqlite-vec>=0.1.6", "mlx-embeddings>=0.0.3"]
+
 [project.scripts]
 basemode-loom = "basemode_loom.cli:app"
 

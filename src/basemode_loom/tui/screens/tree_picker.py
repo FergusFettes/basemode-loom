@@ -107,7 +107,7 @@ class TreePickerScreen(ModalScreen[str | None]):
         self._model.set_entries(build_entries(self._store))
         status = self._backend.status()
         # Refresh a remembered keyword search against the current trees.
-        if self._model.query and status.keyword:
+        if self._model.query and (status.keyword or status.semantic):
             hits = self._backend.search(self._model.query)
             self._model.set_query(
                 self._model.query, {hit.tree_id: hit.score for hit in hits}
@@ -161,7 +161,7 @@ class TreePickerScreen(ModalScreen[str | None]):
         if event.input.id != "picker-search":
             return
         query = event.value.strip()
-        if query and self._backend.status().keyword:
+        if query:
             hits = self._backend.search(query)
             ranking = {hit.tree_id: hit.score for hit in hits}
             self._model.set_text_filter("")
