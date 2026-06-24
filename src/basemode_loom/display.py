@@ -29,10 +29,15 @@ class DisplaySpan:
     style: Literal["model", "context"]
 
 
+LineStyle = Literal[
+    "normal", "bold", "dim", "path", "current", "selected", "header"
+]
+
+
 @dataclass(frozen=True)
 class DisplayLine:
     text: str
-    style: Literal["normal", "bold", "dim", "path", "current", "selected"] = "normal"
+    style: LineStyle = "normal"
     spans: tuple[DisplaySpan, ...] = ()
 
 
@@ -90,21 +95,104 @@ def build_loom_display(
 
     When child_cursor is set, the selected child text is split at that character
     position: the kept part renders bold, the tail renders dim.
+
+    For chat-shaped trees (``state.render_chat_headers``), a role header is
+    inserted at each turn boundary along the path. Consecutive same-role nodes
+    (a single turn split across continuation nodes) share one header.
     """
-    parent_lines = wrap_text(state.full_text, width)
+    prefix_lines = _prefix_lines(state, width)
 
     if not state.children:
-        return [DisplayLine(line) for line in parent_lines]
+        return prefix_lines
 
-    lines: list[DisplayLine] = [DisplayLine(line) for line in parent_lines[:-1]]
-    last_line = parent_lines[-1]
+    lines = list(prefix_lines)
 
-    if width - len(last_line) - len(ARROW) < 10:
-        lines.append(DisplayLine(last_line))
+    current_role = _role_of(state, state.current_node_id)
+    selected = state.children[state.selected_child_idx]
+    child_role = _node_role(selected)
+    new_turn = (
+        state.render_chat_headers
+        and child_role is not None
+        and child_role != current_role
+    )
+
+    if new_turn:
+        # The selected child starts a new role: break onto its own header line
+        # rather than inlining the arrow after the previous turn's last line.
+        lines.append(_header_line(child_role, width))
         last_line = ""
+    else:
+        last_line = ""
+        if lines and lines[-1].style == "normal":
+            last_line = lines.pop().text
+        if width - len(last_line) - len(ARROW) < 10:
+            if last_line:
+                lines.append(DisplayLine(last_line))
+            last_line = ""
 
     lines += _render_siblings(state, last_line, width, child_cursor=child_cursor)
     return lines
+
+
+def _node_role(node: Node) -> str | None:
+    role = node.metadata.get("role")
+    return str(role) if isinstance(role, str) and role else None
+
+
+def _role_of(state: SessionState, node_id: str) -> str | None:
+    for seg in state.lineage_segments:
+        if seg.node_id == node_id:
+            return seg.role
+    return None
+
+
+def _segment_runs(
+    segments: tuple, /
+) -> list[tuple[str | None, str]]:
+    """Collapse consecutive same-role segments into (role, joined_text) runs."""
+    runs: list[tuple[str | None, str]] = []
+    for seg in segments:
+        if runs and runs[-1][0] == seg.role:
+            runs[-1] = (seg.role, runs[-1][1] + seg.text)
+        else:
+            runs.append((seg.role, seg.text))
+    return runs
+
+
+def _header_line(role: str, width: int) -> DisplayLine:
+    label = role.upper()
+    bar_width = max(0, min(width, 60) - len(label) - 4)
+    return DisplayLine(f"── {label} " + "─" * bar_width, "header")
+
+
+def _run_lines(
+    segments: tuple,
+    width: int,
+    *,
+    prev_role: str | None,
+    style: LineStyle = "normal",
+) -> tuple[list[DisplayLine], str | None]:
+    """Render role-runs, emitting a header whenever the role changes.
+
+    ``prev_role`` carries the role in effect just before these segments so the
+    boundary (e.g. selected child -> continuation) doesn't get a spurious header.
+    Returns the lines plus the trailing role for further chaining.
+    """
+    lines: list[DisplayLine] = []
+    for role, text in _segment_runs(segments):
+        if role is not None and role != prev_role:
+            lines.append(_header_line(role, width))
+        prev_role = role
+        lines.extend(DisplayLine(line, style) for line in wrap_text(text, width))
+    return lines, prev_role
+
+
+def _prefix_lines(state: SessionState, width: int) -> list[DisplayLine]:
+    """Render the current path text, with role headers when chat headers are on."""
+    if not state.render_chat_headers or not state.lineage_segments:
+        return [DisplayLine(line) for line in wrap_text(state.full_text, width)]
+    lines, _ = _run_lines(state.lineage_segments, width, prev_role=None)
+    return lines or [DisplayLine("")]
 
 
 def build_tree_display(state: SessionState, width: int) -> list[DisplayLine]:
@@ -304,7 +392,12 @@ def _render_siblings(
                 DisplayLine(" " * indent + ARROW + sl if j == 0 else sl, "dim")
             )
 
-    if state.continuation_text:
+    if state.render_chat_headers and state.continuation_segments:
+        cont_lines, _ = _run_lines(
+            state.continuation_segments, width, prev_role=_node_role(selected)
+        )
+        lines += cont_lines
+    elif state.continuation_text:
         for line in wrap_text(state.continuation_text, width):
             lines.append(DisplayLine(line))
 

@@ -19,6 +19,7 @@ _STYLES = {
     "selected": Style(color="yellow", bold=True),
     "model": Style(color="magenta", bold=True),
     "context": Style(color="green", bold=True),
+    "header": Style(color="cyan", bold=True),
 }
 
 

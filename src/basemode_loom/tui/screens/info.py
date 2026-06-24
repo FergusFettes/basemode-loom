@@ -45,6 +45,7 @@ _KEY_DESCRIPTIONS: dict[str, str] = {
     "branches_down": "Decrease branches",
     "toggle_tree_view": "Cycle view (branch / tree / prompt)",
     "toggle_model_names": "Toggle model name display",
+    "toggle_chat_headers": "Toggle chat role headers",
     "toggle_hoist": "Hoist current node",
     "toggle_bookmark": "Toggle bookmark",
     "next_bookmark": "Jump to next bookmark",

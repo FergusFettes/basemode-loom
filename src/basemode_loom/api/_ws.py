@@ -45,8 +45,8 @@ def _validate_model_plan(raw: Any) -> tuple[list[dict[str, Any]] | None, str | N
         if not _is_int(n_branches) or n_branches < 1 or n_branches > 64:
             return None, f"{field}.n_branches must be an integer between 1 and 64"
         max_tokens = entry.get("max_tokens", 200)
-        if not _is_int(max_tokens) or max_tokens < 50 or max_tokens > 8000:
-            return None, f"{field}.max_tokens must be an integer between 50 and 8000"
+        if not _is_int(max_tokens) or max_tokens < 10 or max_tokens > 8000:
+            return None, f"{field}.max_tokens must be an integer between 10 and 8000"
         temperature = entry.get("temperature", 0.9)
         if (
             not _is_number(temperature)
@@ -102,8 +102,8 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
 
     if "max_tokens" in data:
         value = data["max_tokens"]
-        if not _is_int(value) or value < 50 or value > 8000:
-            errors["max_tokens"] = "must be an integer between 50 and 8000"
+        if not _is_int(value) or value < 10 or value > 8000:
+            errors["max_tokens"] = "must be an integer between 10 and 8000"
         else:
             patch["max_tokens"] = value
 
@@ -307,6 +307,12 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
 
             elif msg_type == "model_names_toggle":
                 state = session.toggle_model_names()
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
+
+            elif msg_type == "chat_headers_toggle":
+                state = session.toggle_chat_headers()
                 await websocket.send_json(
                     {"type": "state", "state": state_to_dict(state)}
                 )

@@ -69,6 +69,15 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
         if state.tree_nodes is not None
         else None,
         "show_model_names": state.show_model_names,
+        "render_chat_headers": state.render_chat_headers,
+        "lineage_segments": [
+            {"text": s.text, "role": s.role, "node_id": s.node_id}
+            for s in state.lineage_segments
+        ],
+        "continuation_segments": [
+            {"text": s.text, "role": s.role, "node_id": s.node_id}
+            for s in state.continuation_segments
+        ],
         "tree_prompt_tokens": state.tree_prompt_tokens,
         "tree_completion_tokens": state.tree_completion_tokens,
         "tree_total_tokens": state.tree_total_tokens,

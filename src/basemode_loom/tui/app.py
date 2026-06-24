@@ -4,6 +4,7 @@ from ..config import DEFAULT_CONFIG, Config
 from ..logging_utils import configure_logging
 from ..session import LoomSession
 from .screens.loom import LoomScreen
+from .widgets.picker_model import PickerModel
 
 
 class BasemodeApp(App[None]):
@@ -17,6 +18,9 @@ class BasemodeApp(App[None]):
         configure_logging("tui")
         self.session = session
         self.config = config
+        # Shared across tree-picker openings so its facet/sort/search filters
+        # persist when the user flips back to the picker.
+        self.picker_model = PickerModel()
 
     def on_mount(self) -> None:
         self.push_screen(LoomScreen(self.session, self.config))

@@ -79,6 +79,20 @@ class PromptEntry:
     messages: tuple[tuple[str, str], ...] | None
 
 
+@dataclass(frozen=True)
+class LineageSegment:
+    """One node's contribution to the current path, plus its chat role (if any).
+
+    Loom-shaped nodes have ``role=None``; chat nodes carry "user"/"assistant"/etc.
+    Carrying segments (rather than only the flat ``full_text``) lets the display
+    layer insert role headers at turn boundaries without changing stored text.
+    """
+
+    text: str
+    role: str | None
+    node_id: str
+
+
 # ---------------------------------------------------------------------------
 # State snapshot consumed by UI layers
 # ---------------------------------------------------------------------------
@@ -104,6 +118,9 @@ class SessionState:
     hoisted_node_id: str | None = None
     tree_nodes: list[Node] | None = None
     show_model_names: bool = True
+    render_chat_headers: bool = False
+    lineage_segments: tuple[LineageSegment, ...] = field(default_factory=tuple)
+    continuation_segments: tuple[LineageSegment, ...] = field(default_factory=tuple)
     model_plan: list[ModelPlanEntry] = field(default_factory=list)
     tree_prompt_tokens: int = 0
     tree_completion_tokens: int = 0
@@ -152,6 +169,10 @@ class LoomSession:
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
         self.show_model_names: bool = tree.show_model_names
+        # A tree is "chat-shaped" if it mixes ≥2 distinct roles (e.g. user +
+        # assistant). Pure loom trees have 0-or-1 role and stay header-free.
+        self._is_chat_tree: bool = len(store.distinct_roles(self._current_id)) >= 2
+        self.render_chat_headers: bool = True
 
     # --- State snapshot ---
 
@@ -166,6 +187,9 @@ class LoomSession:
         continuation = (
             self._get_continuation_text(children[selected_idx]) if children else ""
         )
+        continuation_segments = (
+            self._get_continuation_segments(children[selected_idx]) if children else ()
+        )
         tree_nodes = store.tree(root.id) if self.view_mode == "tree" else None
         (
             tree_prompt_tokens,
@@ -174,6 +198,15 @@ class LoomSession:
             tree_cost_usd,
             tree_pricing_complete,
         ) = self._tree_usage(root.id, tree_nodes)
+        lineage_segments = tuple(
+            LineageSegment(
+                text=n.text,
+                role=_node_role(n),
+                node_id=n.id,
+            )
+            for n in store.lineage(self._current_id)
+            if n.kind != "context"
+        )
         return SessionState(
             current_node_id=self._current_id,
             current_node=node,
@@ -193,6 +226,9 @@ class LoomSession:
             hoisted_node_id=self._hoisted_id,
             tree_nodes=tree_nodes,
             show_model_names=self.show_model_names,
+            render_chat_headers=self._is_chat_tree and self.render_chat_headers,
+            lineage_segments=lineage_segments,
+            continuation_segments=continuation_segments,
             tree_prompt_tokens=tree_prompt_tokens,
             tree_completion_tokens=tree_completion_tokens,
             tree_total_tokens=tree_total_tokens,
@@ -204,15 +240,23 @@ class LoomSession:
         )
 
     def _get_continuation_text(self, selected_child: Node) -> str:
-        path_text = ""
+        return "".join(seg.text for seg in self._get_continuation_segments(selected_child))
+
+    def _get_continuation_segments(
+        self, selected_child: Node
+    ) -> tuple[LineageSegment, ...]:
+        """Walk the checked-out path below the selected child, carrying roles."""
+        segments: list[LineageSegment] = []
         node = selected_child
         while True:
             deeper = self._store.children(node.id)
             if not deeper:
                 break
             node = deeper[min(self._child_path.get(node.id, 0), len(deeper) - 1)]
-            path_text += node.text
-        return path_text
+            segments.append(
+                LineageSegment(text=node.text, role=_node_role(node), node_id=node.id)
+            )
+        return tuple(segments)
 
     # --- Navigation ---
 
@@ -259,6 +303,10 @@ class LoomSession:
 
     def toggle_model_names(self) -> SessionState:
         self.show_model_names = not self.show_model_names
+        return self.get_state()
+
+    def toggle_chat_headers(self) -> SessionState:
+        self.render_chat_headers = not self.render_chat_headers
         return self.get_state()
 
     def toggle_hoist(self) -> SessionState:
@@ -689,7 +737,7 @@ class LoomSession:
         self._model_plan[0] = ModelPlanEntry(
             model=p.model,
             n_branches=p.n_branches,
-            max_tokens=max(50, min(max_tokens, 8000)),
+            max_tokens=max(10, min(max_tokens, 8000)),
             temperature=p.temperature,
             enabled=p.enabled,
         )
@@ -770,7 +818,7 @@ class LoomSession:
                 ModelPlanEntry(
                     model=model,
                     n_branches=max(1, int(raw.get("n_branches", 1))),
-                    max_tokens=max(50, min(int(raw.get("max_tokens", 200)), 8000)),
+                    max_tokens=max(10, min(int(raw.get("max_tokens", 200)), 8000)),
                     temperature=float(raw.get("temperature", 0.9)),
                     enabled=bool(raw.get("enabled", True)),
                 )
@@ -933,6 +981,11 @@ class LoomSession:
             if plan.enabled:
                 return plan.n_branches
         return self._model_plan[0].n_branches
+
+
+def _node_role(node: Node) -> str | None:
+    role = node.metadata.get("role")
+    return str(role) if isinstance(role, str) and role else None
 
 
 def _usage_prompt(

@@ -65,6 +65,7 @@ class KeyMap:
     # View
     toggle_tree_view: str = "v"
     toggle_model_names: str = "n"
+    toggle_chat_headers: str = "N"
     toggle_hoist: str = "Z"
     # Bookmarks
     toggle_bookmark: str = "b"

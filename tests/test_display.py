@@ -5,11 +5,11 @@ from basemode_loom.display import (
     word_wrap_inline,
     wrap_text,
 )
-from basemode_loom.session import SessionState
+from basemode_loom.session import LineageSegment, SessionState
 from basemode_loom.store import Node
 
 
-def _node(id, parent_id=None, root_id=None, text="", model=None):
+def _node(id, parent_id=None, root_id=None, text="", model=None, role=None):
     return Node(
         id=id,
         parent_id=parent_id,
@@ -20,7 +20,7 @@ def _node(id, parent_id=None, root_id=None, text="", model=None):
         max_tokens=None,
         temperature=None,
         created_at="2024-01-01T00:00:00Z",
-        metadata={},
+        metadata={"role": role} if role else {},
     )
 
 
@@ -191,6 +191,152 @@ def test_build_loom_display_narrow_terminal_falls_back():
     state = _state(full_text=very_long_parent, children=[child])
     lines = build_loom_display(state, 80)
     assert lines  # should not crash
+
+
+# --- build_loom_display: chat role headers ---
+
+
+def _segs(pairs):
+    return tuple(
+        LineageSegment(text=text, role=role, node_id=f"k{i}")
+        for i, (role, text) in enumerate(pairs)
+    )
+
+
+def _chat_state(
+    segments,
+    children=None,
+    selected_idx=0,
+    render_chat_headers=True,
+    continuation=(),
+):
+    """Build a SessionState whose path is described by (role, text) segments.
+
+    The last segment is treated as the current node (as in real lineages).
+    """
+    lineage = tuple(
+        LineageSegment(text=text, role=role, node_id=f"n{i}")
+        for i, (role, text) in enumerate(segments)
+    )
+    full_text = "".join(text for _, text in segments)
+    current_node_id = f"n{len(segments) - 1}"
+    current_role = segments[-1][0]
+    cur = _node(current_node_id, text=segments[-1][1], role=current_role)
+    return SessionState(
+        current_node_id=current_node_id,
+        current_node=cur,
+        full_text=full_text,
+        children=children or [],
+        selected_child_idx=selected_idx,
+        descendant_counts={},
+        continuation_text="".join(t for _, t in continuation),
+        model="gpt-4o-mini",
+        max_tokens=200,
+        temperature=0.9,
+        n_branches=1,
+        context="",
+        root_id="n0",
+        render_chat_headers=render_chat_headers,
+        lineage_segments=lineage,
+        continuation_segments=_segs(continuation),
+    )
+
+
+def test_chat_headers_off_renders_flat():
+    state = _chat_state(
+        [("user", "hi"), ("assistant", "hello")],
+        render_chat_headers=False,
+    )
+    lines = build_loom_display(state, 80)
+    assert not any(line.style == "header" for line in lines)
+    assert "".join(line.text for line in lines) == "hihello"
+
+
+def test_chat_headers_inserted_on_role_change():
+    state = _chat_state([("user", "hi"), ("assistant", "hello")])
+    lines = build_loom_display(state, 80)
+    headers = [line for line in lines if line.style == "header"]
+    assert [h.text.split()[1] for h in headers] == ["USER", "ASSISTANT"]
+    # header sits before its turn's text
+    texts = [line.text for line in lines]
+    assert texts.index("hi") > 0
+    assert any("hello" in t for t in texts)
+
+
+def test_chat_split_turn_shares_one_header():
+    # one assistant turn stored across two continuation nodes -> single header
+    state = _chat_state(
+        [("user", "hi"), ("assistant", "hel"), ("assistant", "lo")],
+    )
+    lines = build_loom_display(state, 80)
+    assistant_headers = [
+        line for line in lines if line.style == "header" and "ASSISTANT" in line.text
+    ]
+    assert len(assistant_headers) == 1
+
+
+def test_loom_tree_never_gets_headers():
+    # roles all None -> no headers even with the flag on
+    state = _chat_state([(None, "once "), (None, "upon "), (None, "a time")])
+    lines = build_loom_display(state, 80)
+    assert not any(line.style == "header" for line in lines)
+
+
+def test_chat_child_starting_new_turn_gets_header():
+    child = _node("c1", parent_id="cur", text="Paris.", role="assistant")
+    state = _chat_state(
+        [("user", "capital of France?")],
+        children=[child],
+    )
+    lines = build_loom_display(state, 80)
+    header_labels = [line.text.split()[1] for line in lines if line.style == "header"]
+    assert "ASSISTANT" in header_labels
+    bold = [line for line in lines if line.style == "bold"]
+    assert any("Paris" in line.text for line in bold)
+    # new turn should not be inlined onto the user's line via an arrow
+    assert not any(" -> " in line.text and "capital" in line.text for line in lines)
+
+
+def test_chat_same_role_child_stays_inline():
+    # assistant continuing its own turn -> keep the inline arrow, no new header
+    child = _node("c1", parent_id="cur", text=" more", role="assistant")
+    state = _chat_state(
+        [("user", "q"), ("assistant", "ans")],
+        children=[child],
+    )
+    lines = build_loom_display(state, 80)
+    assert any(" -> " in line.text for line in lines)
+    assistant_headers = [
+        line for line in lines if line.style == "header" and "ASSISTANT" in line.text
+    ]
+    assert len(assistant_headers) == 1  # only the path header, none added for child
+
+
+def test_chat_continuation_path_gets_headers():
+    # the checked-out path below the selected child must also break by role
+    child = _node("c1", parent_id="n0", text="answer one", role="assistant")
+    state = _chat_state(
+        [("user", "first question")],
+        children=[child],
+        continuation=[("user", "second question"), ("assistant", "answer two")],
+    )
+    lines = build_loom_display(state, 80)
+    labels = [line.text.split()[1] for line in lines if line.style == "header"]
+    # USER (prefix) -> ASSISTANT (child) -> USER -> ASSISTANT (continuation)
+    assert labels == ["USER", "ASSISTANT", "USER", "ASSISTANT"]
+
+
+def test_chat_continuation_same_role_no_redundant_header():
+    # selected child is assistant; continuation keeps speaking as assistant
+    child = _node("c1", parent_id="n0", text="part one ", role="assistant")
+    state = _chat_state(
+        [("user", "q")],
+        children=[child],
+        continuation=[("assistant", "part two")],
+    )
+    lines = build_loom_display(state, 80)
+    labels = [line.text.split()[1] for line in lines if line.style == "header"]
+    assert labels == ["USER", "ASSISTANT"]  # no second ASSISTANT at the boundary
 
 
 # --- build_tree_display ---

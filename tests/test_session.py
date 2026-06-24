@@ -34,6 +34,56 @@ def branched_store(tmp_path):
     return store, ab, c
 
 
+# --- chat-shaped trees ---
+
+
+def _chat_store(tmp_path):
+    """Root (role=user) → child (role=assistant)."""
+    store = GenerationStore(tmp_path / "chat.sqlite")
+    root = store.create_root("hi", metadata={"role": "user"})
+    child = store.add_child(
+        root.id,
+        "hello",
+        model="m",
+        strategy="system",
+        max_tokens=10,
+        temperature=0.9,
+        metadata={"role": "assistant"},
+    )
+    return store, root, child
+
+
+def test_chat_tree_enables_headers_and_segments(tmp_path):
+    store, _root, child = _chat_store(tmp_path)
+    state = LoomSession(store, child.id).get_state()
+    assert state.render_chat_headers is True
+    roles = [seg.role for seg in state.lineage_segments]
+    assert roles == ["user", "assistant"]
+
+
+def test_loom_tree_leaves_headers_off(branched_store):
+    store, ab, _ = branched_store
+    state = LoomSession(store, ab[0].id).get_state()
+    assert state.render_chat_headers is False
+    assert all(seg.role is None for seg in state.lineage_segments)
+
+
+def test_toggle_chat_headers_suppresses_on_chat_tree(tmp_path):
+    store, _root, child = _chat_store(tmp_path)
+    session = LoomSession(store, child.id)
+    assert session.get_state().render_chat_headers is True
+    assert session.toggle_chat_headers().render_chat_headers is False
+    # segments still carry roles even when rendering is suppressed
+    assert session.get_state().lineage_segments[0].role == "user"
+
+
+def test_toggle_chat_headers_noop_on_loom_tree(branched_store):
+    store, ab, _ = branched_store
+    session = LoomSession(store, ab[0].id)
+    # toggling the user flag can't force headers onto a non-chat tree
+    assert session.toggle_chat_headers().render_chat_headers is False
+
+
 # --- get_state ---
 
 
@@ -209,7 +259,7 @@ def test_set_max_tokens_clamps_low(store):
     )
     session = LoomSession(store, ch[0].id)
     session.set_max_tokens(0)
-    assert session.max_tokens == 50
+    assert session.max_tokens == 10
 
 
 def test_set_n_branches_minimum_one(store):

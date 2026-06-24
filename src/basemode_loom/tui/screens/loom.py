@@ -63,6 +63,7 @@ def _build_bindings(km: KeyMap = DEFAULT_CONFIG.keys) -> list[Binding]:
         Binding(km.branches_down, "branches_down", "-n", show=False),
         Binding(km.toggle_tree_view, "toggle_tree_view", "View", show=False),
         Binding(km.toggle_model_names, "toggle_model_names", "Names", show=False),
+        Binding(km.toggle_chat_headers, "toggle_chat_headers", "Headers", show=False),
         Binding(km.toggle_hoist, "toggle_hoist", "Hoist", show=False),
         Binding(km.toggle_bookmark, "toggle_bookmark", "Bookmark", show=False),
         Binding(km.next_bookmark, "next_bookmark", "Next mark", show=False),
@@ -284,6 +285,10 @@ class LoomScreen(Screen):
 
     def action_toggle_model_names(self) -> None:
         self.session.toggle_model_names()
+        self._refresh()
+
+    def action_toggle_chat_headers(self) -> None:
+        self.session.toggle_chat_headers()
         self._refresh()
 
     def action_toggle_hoist(self) -> None:

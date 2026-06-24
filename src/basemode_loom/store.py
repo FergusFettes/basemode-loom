@@ -93,7 +93,7 @@ def _normalize_model_plan(raw_plan: Any) -> list[dict[str, Any]]:
             {
                 "model": model,
                 "n_branches": max(1, int(entry.get("n_branches", 1))),
-                "max_tokens": max(50, min(int(entry.get("max_tokens", 200)), 8000)),
+                "max_tokens": max(10, min(int(entry.get("max_tokens", 200)), 8000)),
                 "temperature": float(entry.get("temperature", 0.9)),
                 "enabled": bool(entry.get("enabled", True)),
             }
@@ -885,6 +885,24 @@ class GenerationStore:
             ).fetchall()
         return [self._node(row) for row in rows]
 
+    def distinct_roles(self, node_id: str) -> set[str]:
+        """Return the set of distinct non-null chat roles across a node's tree."""
+        resolved = self.resolve_node_id(node_id)
+        if resolved is None:
+            return set()
+        node = self.get(resolved)
+        if node is None:
+            return set()
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT DISTINCT json_extract(metadata_json, '$.role') AS role
+                FROM nodes WHERE tree_id = ?
+                """,
+                (node.tree_id,),
+            ).fetchall()
+        return {str(row["role"]) for row in rows if row["role"] is not None}
+
     def find_root_by_text(self, text: str) -> Node | None:
         """Return the root node whose text exactly matches, or None."""
         with closing(self.connect()) as conn:
@@ -967,6 +985,117 @@ class GenerationStore:
                 )
                 inserted += result.rowcount
         return inserted
+
+    def tree_index(self) -> dict[str, tuple[str | None, str | None]]:
+        """Return ``{tree_id: (name, current_node_id)}`` for every tree in one query."""
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                "SELECT id, name, current_node_id FROM trees"
+            ).fetchall()
+        return {str(row["id"]): (row["name"], row["current_node_id"]) for row in rows}
+
+    def tree_facets(self) -> dict[str, dict[str, list[str]]]:
+        """Return ``{tree_id: {"sources": [...], "models": [...]}}`` in two queries.
+
+        Used by the tree picker to show provenance (import source) and the
+        distinct models that appear in each tree.
+        """
+        sources: dict[str, set[str]] = {}
+        models: dict[str, set[str]] = {}
+        with closing(self.connect()) as conn:
+            for row in conn.execute(
+                "SELECT DISTINCT tree_id, json_extract(metadata_json, '$.source') "
+                "AS source FROM nodes "
+                "WHERE json_extract(metadata_json, '$.source') IS NOT NULL"
+            ):
+                sources.setdefault(str(row["tree_id"]), set()).add(str(row["source"]))
+            for row in conn.execute(
+                "SELECT DISTINCT tree_id, model FROM nodes WHERE model IS NOT NULL"
+            ):
+                models.setdefault(str(row["tree_id"]), set()).add(str(row["model"]))
+        out: dict[str, dict[str, list[str]]] = {}
+        for tree_id in set(sources) | set(models):
+            out[tree_id] = {
+                "sources": sorted(sources.get(tree_id, set())),
+                "models": sorted(models.get(tree_id, set())),
+            }
+        return out
+
+    def tree_classifications(self) -> dict[str, dict[str, str]]:
+        """Return ``{tree_id: {category, domain, sensitivity, source}}`` in one query.
+
+        Values come from the tree row's ``metadata_json`` (the LLM classification
+        written by the import/classify pipeline). Missing keys default to "".
+        Trees without any of these keys are omitted.
+        """
+        keys = ("category", "domain", "sensitivity", "source")
+        out: dict[str, dict[str, str]] = {}
+        with closing(self.connect()) as conn:
+            rows = conn.execute("SELECT id, metadata_json FROM trees").fetchall()
+        for row in rows:
+            metadata = json.loads(str(row["metadata_json"] or "{}"))
+            if not isinstance(metadata, dict):
+                continue
+            values = {
+                key: str(metadata[key])
+                for key in keys
+                if isinstance(metadata.get(key), str) and metadata[key]
+            }
+            if values:
+                out[str(row["id"])] = {key: values.get(key, "") for key in keys}
+        return out
+
+    def node_tree_map(self, node_ids: list[str]) -> dict[str, str]:
+        """Map node ids to their tree id in bulk. Unknown ids are omitted."""
+        out: dict[str, str] = {}
+        unique = [nid for nid in dict.fromkeys(node_ids) if nid]
+        if not unique:
+            return out
+        with closing(self.connect()) as conn:
+            for start in range(0, len(unique), 500):
+                chunk = unique[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"SELECT id, tree_id FROM nodes WHERE id IN ({placeholders})", chunk
+                ).fetchall()
+                for row in rows:
+                    out[str(row["id"])] = str(row["tree_id"])
+        return out
+
+    def search_index_status(self) -> dict[str, bool]:
+        """Report which retrieval indexes exist in this database.
+
+        Returns ``{"fts": bool, "vec": bool}`` based on the presence of the
+        ``nodes_fts`` (FTS5) and ``nodes_vec`` (sqlite-vec) tables that the
+        guardian-angel corpus pipeline builds. loom's own databases have neither.
+        """
+        with closing(self.connect()) as conn:
+            present = {
+                str(row["name"])
+                for row in conn.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' "
+                    "AND name IN ('nodes_fts', 'nodes_vec')"
+                ).fetchall()
+            }
+        return {"fts": "nodes_fts" in present, "vec": "nodes_vec" in present}
+
+    def nodes_by_ids(self, node_ids: list[str]) -> dict[str, Node]:
+        """Fetch multiple nodes by exact id in bulk. Unknown ids are omitted."""
+        out: dict[str, Node] = {}
+        unique = [nid for nid in dict.fromkeys(node_ids) if nid]
+        if not unique:
+            return out
+        with closing(self.connect()) as conn:
+            # Chunk to stay under SQLite's bound-parameter limit.
+            for start in range(0, len(unique), 500):
+                chunk = unique[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"SELECT * FROM nodes WHERE id IN ({placeholders})", chunk
+                ).fetchall()
+                for row in rows:
+                    out[str(row["id"])] = self._node(row)
+        return out
 
     def roots(self) -> list[Node]:
         with closing(self.connect()) as conn:
