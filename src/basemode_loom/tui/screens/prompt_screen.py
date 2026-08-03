@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from rich.style import Style
+from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
 from textual.widgets import Static, TabbedContent, TabPane, Tabs
-
-from rich.style import Style
-from rich.text import Text
 
 from ...session import PromptEntry
 

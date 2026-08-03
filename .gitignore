@@ -8,5 +8,6 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+test-data/
 
 site/

@@ -89,8 +89,35 @@ Inline edits create a forked node rather than mutating an existing node in place
 
 ## Tree picker
 
-Press `Tab` to open the tree picker. Use `j`/`k` to navigate recent trees and `Enter` or `Tab` to switch to one.
-Press `d` to delete the highlighted tree; the picker will confirm before deletion.
+Press `Tab` to open the tree picker. It shows tree names and previews alongside
+available category, domain, source, and model facets. Multiple values within a
+facet are combined with OR; selections across different facets are combined
+with AND.
+
+Typing in the search box immediately filters tree metadata. Press `Enter` to
+run indexed search and rank matching trees by relevance. Depending on the
+database, indexed search can include:
+
+- Exact or prefix matching for node, tree, and context IDs
+- FTS5 keyword search over node text
+- Semantic search over an existing `nodes_vec` embedding index
+
+When both keyword and semantic indexes are available, their rankings are
+combined. Semantic search requires the optional dependencies described in
+[[Installation]]. A regular loom database without corpus indexes still supports
+the live metadata filter.
+
+| Key | Action |
+|-----|--------|
+| `/` | Focus search |
+| `Enter` | Run search, or open the highlighted tree when the list is focused |
+| `j` / `k`, `↓` / `↑` | Move through trees |
+| `s` | Cycle recent, oldest, node-count, and name sorting |
+| `c` | Clear search and facets |
+| `d` | Delete the highlighted tree after confirmation |
+| `Esc` / `q` | Close the picker |
+
+Search and facet state persist when the picker is closed and reopened.
 
 ## Stats screen
 

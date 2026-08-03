@@ -44,6 +44,23 @@ Useful commands:
 - `basemode-loom export|import`: move trees in/out as JSON/Markdown
 - `basemode-loom serve`: run REST/WebSocket API for frontend usage
 
+## Tree Search
+
+The TUI tree picker (`Tab`) supports live metadata filtering, category/domain/
+source/model facets, ID lookup, FTS5 keyword search, and semantic search when
+the selected database contains a compatible vector index.
+
+Guardian Angel corpora use the optional MLX search dependencies:
+
+```bash
+pip install 'basemode-loom[embed-mlx]'
+basemode-loom view --db /path/to/corpus.sqlite
+```
+
+Press `/` in the tree picker, enter a query, and press `Enter` to rank matching
+trees. Semantic search queries an existing corpus index; basemode-loom does not
+build embeddings for ordinary loom databases.
+
 ## Model Selection
 
 - TUI model picker is available via `m`.

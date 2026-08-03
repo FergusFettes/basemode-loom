@@ -239,9 +239,5 @@ def _rrf_merge(rankings: list[list[str]], k: int = _RRF_K) -> list[tuple[str, fl
 
 
 def get_backend(store: GenerationStore) -> SearchBackend:
-    """Return the search backend for a store.
-
-    The single seam where a future hybrid (keyword + semantic) backend will be
-    selected; callers depend only on the :class:`SearchBackend` protocol.
-    """
+    """Return the hybrid search backend for a store."""
     return KeywordBackend(store)

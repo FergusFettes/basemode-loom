@@ -1,12 +1,11 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Any, ClassVar
+from typing import ClassVar
 
 from rich.console import Group
 from rich.json import JSON
 from rich.table import Table
-from rich.text import Text
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import VerticalScroll
@@ -22,7 +21,6 @@ from .config_review import (
     _tree_dict,
 )
 from .stats import _stats_renderable
-
 
 _KEY_DESCRIPTIONS: dict[str, str] = {
     "nav_parent": "Navigate to parent",
