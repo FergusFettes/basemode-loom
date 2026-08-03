@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
@@ -13,6 +14,13 @@ from ._rest import router
 from ._ws import session_ws
 
 
+def _package_version() -> str:
+    try:
+        return version("basemode-loom")
+    except PackageNotFoundError:
+        return "0.0.0"
+
+
 def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastAPI:
     configure_logging("api")
 
@@ -22,7 +30,9 @@ def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastA
         app.state.config = config
         yield
 
-    app = FastAPI(title="basemode-loom", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(
+        title="basemode-loom", version=_package_version(), lifespan=lifespan
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

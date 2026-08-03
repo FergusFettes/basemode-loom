@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from typing import Annotated, Any
+from collections import Counter
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from pydantic import BaseModel, Field
 
+from ..catalog import FACETS, TreeCatalogEntry, build_tree_catalog
 from ..config import Config, config_to_dict
+from ..retrieval import get_backend
 from ..stats import analyze_tree
 from ..store import GenerationStore, Node
 from ._serialize import node_to_dict, tree_to_dict
@@ -51,9 +54,203 @@ class CreateRootBody(BaseModel):
     context: str | None = None
 
 
+class FacetValue(BaseModel):
+    value: str
+    count: int
+
+
+class SearchCapabilities(BaseModel):
+    id: bool = True
+    metadata: bool = True
+    keyword: bool
+    semantic: bool
+    message: str = ""
+
+
+class TreeSummary(BaseModel):
+    id: str = Field(description="Root node ID")
+    tree_id: str
+    name: str | None
+    created_at: str
+    node_count: int
+    root_preview: str
+    leaf_preview: str
+    category: str
+    domain: str
+    sources: list[str]
+    models: list[str]
+    score: float | None = None
+    best_node_id: str | None = None
+
+
+class TreeCatalogResponse(BaseModel):
+    items: list[TreeSummary]
+    total: int = Field(description="Number of matches before pagination")
+    offset: int
+    limit: int
+    facets: dict[str, list[FacetValue]]
+    search: SearchCapabilities
+
+
 @router.get("/roots")
 def list_roots(store: StoreDep) -> list[dict]:
     return [_root_summary(store, r) for r in store.roots()]
+
+
+TreeSort = Literal["auto", "relevance", "recent", "oldest", "nodes", "name"]
+
+
+@router.get("/trees", response_model=TreeCatalogResponse)
+def list_tree_catalog(
+    store: StoreDep,
+    q: Annotated[
+        str | None,
+        Query(description="ID, keyword, semantic, or metadata query", max_length=500),
+    ] = None,
+    category: Annotated[list[str] | None, Query()] = None,
+    domain: Annotated[list[str] | None, Query()] = None,
+    source: Annotated[list[str] | None, Query()] = None,
+    model: Annotated[list[str] | None, Query()] = None,
+    sort: TreeSort = "auto",
+    offset: Annotated[int, Query(ge=0)] = 0,
+    limit: Annotated[int, Query(ge=1, le=200)] = 50,
+) -> TreeCatalogResponse:
+    """List picker-ready trees with facets, hybrid search, and pagination.
+
+    Repeat a facet parameter to select multiple values. Values within one facet
+    are ORed; different facets are ANDed.
+    """
+    entries = build_tree_catalog(store)
+    backend = get_backend(store)
+    status = backend.status()
+    query = (q or "").strip()
+    ranking: dict[str, tuple[float, str]] | None = None
+    metadata_query = ""
+    if query:
+        hits = backend.search(query, limit=max(len(entries), 1))
+        if hits or status.keyword or status.semantic:
+            ranking = {
+                hit.tree_id: (hit.score, hit.best_node_id) for hit in hits
+            }
+        else:
+            metadata_query = query.lower()
+
+    selected = {
+        "category": set(category or []),
+        "domain": set(domain or []),
+        "source": set(source or []),
+        "model": set(model or []),
+    }
+    filtered = [
+        entry
+        for entry in entries
+        if _entry_matches(entry, selected, metadata_query, ranking)
+    ]
+    resolved_sort = "relevance" if sort == "auto" and ranking is not None else sort
+    if resolved_sort == "auto":
+        resolved_sort = "recent"
+    _sort_catalog(filtered, resolved_sort, ranking)
+
+    total = len(filtered)
+    page = filtered[offset : offset + limit]
+    return TreeCatalogResponse(
+        items=[_tree_summary(entry, ranking) for entry in page],
+        total=total,
+        offset=offset,
+        limit=limit,
+        facets=_facet_counts(entries),
+        search=SearchCapabilities(
+            keyword=status.keyword,
+            semantic=status.semantic,
+            message=status.message,
+        ),
+    )
+
+
+def _entry_matches(
+    entry: TreeCatalogEntry,
+    selected: dict[str, set[str]],
+    metadata_query: str,
+    ranking: dict[str, tuple[float, str]] | None,
+) -> bool:
+    for facet, values in selected.items():
+        if values and not values.intersection(entry.facet_values(facet)):
+            return False
+    if ranking is not None and entry.root.tree_id not in ranking:
+        return False
+    if metadata_query:
+        haystack = " ".join(
+            (
+                entry.name or "",
+                entry.category,
+                entry.domain,
+                entry.source,
+                entry.players,
+                entry.root.id,
+            )
+        ).lower()
+        if metadata_query not in haystack:
+            return False
+    return True
+
+
+def _sort_catalog(
+    entries: list[TreeCatalogEntry],
+    sort: str,
+    ranking: dict[str, tuple[float, str]] | None,
+) -> None:
+    if sort == "relevance":
+        entries.sort(
+            key=lambda entry: (ranking or {}).get(entry.root.tree_id, (0.0, ""))[0],
+            reverse=True,
+        )
+    elif sort == "oldest":
+        entries.sort(key=lambda entry: (entry.root.created_at, entry.root.id))
+    elif sort == "nodes":
+        entries.sort(
+            key=lambda entry: (entry.node_count, entry.root.created_at), reverse=True
+        )
+    elif sort == "name":
+        entries.sort(key=lambda entry: (entry.name or entry.root.id).lower())
+    else:
+        entries.sort(
+            key=lambda entry: (entry.root.created_at, entry.root.id), reverse=True
+        )
+
+
+def _tree_summary(
+    entry: TreeCatalogEntry,
+    ranking: dict[str, tuple[float, str]] | None,
+) -> TreeSummary:
+    match = ranking.get(entry.root.tree_id) if ranking is not None else None
+    return TreeSummary(
+        id=entry.root.id,
+        tree_id=entry.root.tree_id,
+        name=entry.name,
+        created_at=entry.root.created_at,
+        node_count=entry.node_count,
+        root_preview=entry.root_preview,
+        leaf_preview=entry.leaf_preview,
+        category=entry.category,
+        domain=entry.domain,
+        sources=list(entry.sources),
+        models=list(entry.models),
+        score=match[0] if match else None,
+        best_node_id=match[1] if match else None,
+    )
+
+
+def _facet_counts(entries: list[TreeCatalogEntry]) -> dict[str, list[FacetValue]]:
+    result: dict[str, list[FacetValue]] = {}
+    for facet in FACETS:
+        counts = Counter(
+            value for entry in entries for value in entry.facet_values(facet)
+        )
+        result[facet] = [
+            FacetValue(value=value, count=count)
+            for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+        ]
+    return result
 
 
 @router.post("/roots", status_code=201)

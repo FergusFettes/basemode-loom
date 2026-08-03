@@ -21,6 +21,8 @@ under Unreleased.
 - Persisted per-tree generation settings.
 - Structured application logging and diagnostic coverage around generation,
   storage, and WebSocket workflows.
+- Typed `/api/trees` catalog endpoint with hybrid search, repeatable facets,
+  sorting, pagination, facet counts, and capability reporting in OpenAPI.
 
 ### Changed
 

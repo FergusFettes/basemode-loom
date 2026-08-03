@@ -10,6 +10,8 @@ from textual.geometry import Region, Size
 from textual.scroll_view import ScrollView
 from textual.strip import Strip
 
+from basemode_loom.catalog import build_tree_catalog
+
 from .picker_model import _TreeEntry
 
 if TYPE_CHECKING:
@@ -18,69 +20,12 @@ if TYPE_CHECKING:
 _CURSOR = "▸"
 _ACTIVE = "●"  # marks the currently open tree
 _LEAF_PREFIX = "  └ "
-_NONE_LABEL = "(at root)"
 _ENTRY_HEIGHT = 5
 
 
-def _flatten(text: str) -> str:
-    return " ".join(text.split())
-
-
 def build_entries(store: GenerationStore) -> list[_TreeEntry]:
-    """Bulk-load every tree into ``_TreeEntry`` rows in a single pass.
-
-    Uses the store's bulk accessors (one query each) rather than per-root
-    queries, which otherwise open thousands of SQLite connections on large
-    corpora.
-    """
-    roots = store.roots()
-    if not roots:
-        return []
-    counts = store.descendant_counts([r.id for r in roots])
-    tree_meta = store.tree_index()
-    facets = store.tree_facets()
-    classifications = store.tree_classifications()
-
-    leaf_ids = [
-        last_id
-        for root in roots
-        if (last_id := tree_meta.get(root.tree_id, (None, None))[1])
-        and last_id != root.id
-    ]
-    leaf_nodes = store.nodes_by_ids(leaf_ids) if leaf_ids else {}
-
-    entries: list[_TreeEntry] = []
-    for root in roots:
-        node_count = counts.get(root.id, 0) + 1  # +1 for the root itself
-        name, last_id = tree_meta.get(root.tree_id, (None, None))
-        if last_id and last_id != root.id:
-            node = leaf_nodes.get(last_id)
-            leaf_preview = _flatten(node.text) if node else _NONE_LABEL
-        else:
-            leaf_preview = _NONE_LABEL
-
-        facet = facets.get(root.tree_id, {})
-        classification = classifications.get(root.tree_id, {})
-        # Prefer node-derived sources; fall back to the tree-level source.
-        sources = tuple(facet.get("sources", []))
-        if not sources and classification.get("source"):
-            sources = (classification["source"],)
-        models = tuple(m.split("/")[-1] for m in facet.get("models", []))
-
-        entries.append(
-            _TreeEntry(
-                root=root,
-                name=name,
-                node_count=node_count,
-                root_preview=_flatten(root.text),
-                leaf_preview=leaf_preview,
-                category=classification.get("category", ""),
-                domain=classification.get("domain", ""),
-                sources=sources,
-                models=models,
-            )
-        )
-    return entries
+    """Compatibility wrapper for the shared catalog builder."""
+    return build_tree_catalog(store)
 
 
 class TreePickerView(ScrollView):

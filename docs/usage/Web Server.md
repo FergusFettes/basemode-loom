@@ -22,7 +22,40 @@ uvicorn.run(app, host="127.0.0.1", port=8000)
 
 ## REST API
 
-The FastAPI app exposes interactive docs at `/docs`.
+FastAPI publishes the API contract automatically:
+
+- `/openapi.json` contains the machine-readable OpenAPI 3 schema.
+- `/docs` provides an interactive Swagger UI.
+- `/redoc` provides a reference-oriented ReDoc view.
+
+The schema includes query constraints and response models, so a frontend can
+generate a typed client with tools such as `openapi-typescript`, Orval, or
+OpenAPI Generator. Regenerate that client when `/openapi.json` changes.
+
+### Search and filter trees
+
+```
+GET /api/trees?q=learning&category=research&source=codex&sort=auto&limit=50
+```
+
+Returns picker-ready tree summaries, the total match count, available facet
+values and counts, and the database's search capabilities. Supported query
+parameters are:
+
+- `q`: ID, indexed keyword/semantic query, or metadata substring query when no
+  retrieval index is available
+- `category`, `domain`, `source`, `model`: repeatable facet values
+- `sort`: `auto`, `relevance`, `recent`, `oldest`, `nodes`, or `name`
+- `offset`, `limit`: pagination; `limit` is capped at 200
+
+Values repeated within one facet are combined with OR. Different facets are
+combined with AND. `auto` selects relevance ordering for indexed results and
+recent ordering otherwise.
+
+Each item includes its root and tree IDs, previews, node count, classification,
+sources, models, and, for ranked searches, `score` and `best_node_id`. The
+`search` object reports whether keyword and semantic retrieval are currently
+available and explains missing optional dependencies.
 
 ### Get config
 
@@ -189,4 +222,5 @@ Validation constraints:
 - `tree_named`: emitted when a root gets auto-named
 - `error`: protocol or validation error
 
-This is the same session interface used internally by the TUI, so any command that works in the TUI is available over WebSocket.
+The WebSocket exposes interactive navigation and generation. Tree discovery,
+search, filtering, and deletion use the REST endpoints above.

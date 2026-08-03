@@ -10,15 +10,15 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from basemode_loom.store import Node
+from basemode_loom.catalog import FACETS as CATALOG_FACETS
+from basemode_loom.catalog import TreeCatalogEntry
 
 # Facets exposed in the sidebar, in display order. Each maps an entry to the set
 # of values it has for that facet (single-valued category/domain; multi-valued
 # source/model). Matching is OR within a facet, AND across facets.
-FACETS: tuple[str, ...] = ("category", "domain", "source", "model")
+_TreeEntry = TreeCatalogEntry
+FACETS = CATALOG_FACETS
 
 # Sort modes cycled by `s`. "relevance" is only meaningful (and auto-selected)
 # while a search query is active.
@@ -30,40 +30,6 @@ _SORT_KEYS: dict[str, Callable[[_TreeEntry], object]] = {
     "name": lambda e: (e.name or e.root.id).lower(),
 }
 _SORT_REVERSE = {"recent": True, "oldest": False, "nodes": True, "name": False}
-
-
-@dataclass
-class _TreeEntry:
-    root: Node
-    name: str | None
-    node_count: int
-    root_preview: str  # flattened first-paragraph text
-    leaf_preview: str  # text of the checked-out leaf node
-    category: str = ""
-    domain: str = ""
-    sources: tuple[str, ...] = ()  # import source(s), node- or tree-derived
-    models: tuple[str, ...] = ()  # distinct model short-names in the tree
-
-    @property
-    def source(self) -> str:
-        """Display string for the meta line."""
-        return "/".join(self.sources)
-
-    @property
-    def players(self) -> str:
-        """Display string for the meta line: distinct model short-names."""
-        return ", ".join(self.models)
-
-    def facet_values(self, facet: str) -> tuple[str, ...]:
-        if facet == "category":
-            return (self.category,) if self.category else ()
-        if facet == "domain":
-            return (self.domain,) if self.domain else ()
-        if facet == "source":
-            return self.sources
-        if facet == "model":
-            return self.models
-        return ()
 
 
 @dataclass
