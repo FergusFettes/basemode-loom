@@ -643,6 +643,10 @@ async def test_generate_partial_failure_still_saves_successful_branches(
         raise RuntimeError("branch failed")
 
     monkeypatch.setattr("basemode_loom.session.continue_text", mixed_continue)
+    monkeypatch.setattr(
+        "basemode_loom.session.normalize_completion_segment",
+        lambda _prefix, completion: completion,
+    )
     _, ch = store.save_continuations(
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
