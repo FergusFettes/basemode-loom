@@ -6,6 +6,8 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.2.1 - 2026-08-11
+
 ### Added
 
 - `basemode-loom embed` for full or incremental sqlite-vec index construction,
