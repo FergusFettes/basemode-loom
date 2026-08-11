@@ -686,8 +686,17 @@ class LoomScreen(Screen):
                         pass
                     case GenerationCancelled():
                         pass
-                    case GenerationError(error=exc):
-                        log.exception(f"generation worker error: {exc}")
+                    case GenerationError(
+                        error=exc,
+                        incident_id=incident_id,
+                        category=category,
+                        status=status,
+                    ):
+                        log.error(
+                            "generation worker error "
+                            f"category={category or 'internal'} status={status} "
+                            f"incident_id={incident_id or 'none'}"
+                        )
                         self.notify(str(exc), severity="error")
         finally:
             self._generating = False

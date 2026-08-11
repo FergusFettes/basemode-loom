@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 from typing import Any
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from ..config import ServerConfig
 from ..logging_utils import get_logger
 from ..session import (
     GenerationCancelled,
@@ -15,6 +17,12 @@ from ..session import (
     TokenReceived,
 )
 from ..store import GenerationStore
+from ._security import (
+    GenerationGate,
+    safe_error_message,
+    value_exceeds_field_limit,
+    websocket_origin_allowed,
+)
 from ._serialize import node_to_dict, state_to_dict
 
 log = get_logger(__name__)
@@ -153,7 +161,16 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
     return patch, errors
 
 
-async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
+async def session_ws(
+    websocket: WebSocket,
+    store: GenerationStore,
+    config: ServerConfig,
+    allowed_origins: tuple[str, ...],
+    generation_gate: GenerationGate,
+) -> None:
+    if not websocket_origin_allowed(websocket, config, allowed_origins):
+        await websocket.close(code=1008, reason="origin not allowed")
+        return
     await websocket.accept()
     session: LoomSession | None = None
     gen_task: asyncio.Task[None] | None = None
@@ -164,60 +181,109 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 {"type": "state", "state": state_to_dict(session.get_state())}
             )
 
-    async def send_error(message: str) -> None:
-        await websocket.send_json({"type": "error", "message": message})
+    async def send_error(message: str, *, error_type: str = "error") -> None:
+        await websocket.send_json({"type": error_type, "message": message})
 
     async def run_generation() -> None:
         assert session is not None
+        acquired = await generation_gate.try_acquire()
+        if not acquired:
+            await send_error(
+                "generation capacity is busy", error_type="generation_busy"
+            )
+            return
         try:
-            async for event in session.generate():
-                if isinstance(event, TokenReceived):
-                    await websocket.send_json(
-                        {
-                            "type": "token",
-                            "model_idx": event.model_idx,
-                            "branch_idx": event.branch_idx,
-                            "slot_idx": event.slot_idx,
-                            "text": event.token,
-                        }
-                    )
-                elif isinstance(event, GenerationComplete):
-                    await websocket.send_json(
-                        {
-                            "type": "generation_complete",
-                            "new_nodes": [node_to_dict(n) for n in event.new_nodes],
-                        }
-                    )
-                    state = session.get_state()
-                    await websocket.send_json(
-                        {"type": "state", "state": state_to_dict(state)}
-                    )
-                    root = store.get(state.root_id)
-                    tree = store.tree_for_node(root.id) if root else None
-                    if root and tree and tree.name:
+            async with asyncio.timeout(config.generation_timeout_seconds):
+                async for event in session.generate(
+                    max_context_tokens=config.max_context_tokens
+                ):
+                    if isinstance(event, TokenReceived):
                         await websocket.send_json(
                             {
-                                "type": "tree_named",
-                                "root_id": root.id,
-                                "name": tree.name,
+                                "type": "token",
+                                "model_idx": event.model_idx,
+                                "branch_idx": event.branch_idx,
+                                "slot_idx": event.slot_idx,
+                                "text": event.token,
                             }
                         )
-                elif isinstance(event, GenerationError):
-                    await websocket.send_json(
-                        {"type": "generation_error", "error": str(event.error)}
-                    )
-                elif isinstance(event, GenerationCancelled):
-                    await websocket.send_json({"type": "generation_cancelled"})
-                    await push_state()
+                    elif isinstance(event, GenerationComplete):
+                        await websocket.send_json(
+                            {
+                                "type": "generation_complete",
+                                "new_nodes": [node_to_dict(n) for n in event.new_nodes],
+                            }
+                        )
+                        state = session.get_state()
+                        await websocket.send_json(
+                            {"type": "state", "state": state_to_dict(state)}
+                        )
+                        root = store.get(state.root_id)
+                        tree = store.tree_for_node(root.id) if root else None
+                        if root and tree and tree.name:
+                            await websocket.send_json(
+                                {
+                                    "type": "tree_named",
+                                    "root_id": root.id,
+                                    "name": tree.name,
+                                }
+                            )
+                    elif isinstance(event, GenerationError):
+                        response: dict[str, Any] = {
+                            "type": "generation_error",
+                            "error": safe_error_message(event.error),
+                        }
+                        if event.incident_id is not None:
+                            response["incident_id"] = event.incident_id
+                        if event.category is not None:
+                            response["category"] = event.category
+                        if event.status is not None:
+                            response["status"] = event.status
+                        await websocket.send_json(response)
+                    elif isinstance(event, GenerationCancelled):
+                        await websocket.send_json({"type": "generation_cancelled"})
+                        await push_state()
         except asyncio.CancelledError:
             pass
-        except Exception as exc:
-            log.exception(f"websocket generation loop failed: {exc}")
-            await send_error(str(exc))
+        except TimeoutError:
+            session.cancel()
+            await send_error("generation timed out", error_type="generation_timeout")
+        except Exception:
+            log.error("websocket generation loop failed")
+            await send_error("generation failed", error_type="generation_error")
+        finally:
+            await generation_gate.release()
 
     try:
         while True:
-            data: dict[str, Any] = await websocket.receive_json()
+            message = await websocket.receive()
+            raw = message.get("text")
+            try:
+                if raw is None and message.get("bytes") is not None:
+                    raw = message["bytes"].decode("utf-8")
+            except UnicodeDecodeError:
+                await websocket.close(code=1007, reason="invalid UTF-8 payload")
+                return
+            if raw is None:
+                if message.get("type") == "websocket.disconnect":
+                    raise WebSocketDisconnect(message.get("code", 1000))
+                continue
+            if len(raw.encode("utf-8")) > config.max_message_bytes:
+                await websocket.close(code=1009, reason="message too large")
+                return
+            try:
+                data = json.loads(raw)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                await send_error("invalid JSON", error_type="invalid_message")
+                continue
+            if not isinstance(data, dict):
+                await send_error(
+                    "message must be an object", error_type="invalid_message"
+                )
+                continue
+            if value_exceeds_field_limit(data, config.max_field_bytes):
+                await websocket.close(code=1009, reason="field too large")
+                return
             msg_type = data.get("type")
 
             if msg_type == "init":
@@ -272,7 +338,26 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
                 if gen_task and not gen_task.done():
                     await send_error("generation already in progress")
                 else:
-                    gen_task = asyncio.create_task(run_generation())
+                    state = session.get_state()
+                    branches = sum(
+                        plan.n_branches for plan in state.model_plan if plan.enabled
+                    )
+                    if branches > config.max_branches_per_job:
+                        await send_error(
+                            "generation branch limit exceeded",
+                            error_type="generation_limit_exceeded",
+                        )
+                    elif any(
+                        plan.max_tokens > config.max_output_tokens
+                        for plan in state.model_plan
+                        if plan.enabled
+                    ):
+                        await send_error(
+                            "generation output token limit exceeded",
+                            error_type="generation_limit_exceeded",
+                        )
+                    else:
+                        gen_task = asyncio.create_task(run_generation())
 
             elif msg_type == "cancel":
                 session.cancel()
@@ -322,6 +407,7 @@ async def session_ws(websocket: WebSocket, store: GenerationStore) -> None:
 
     except WebSocketDisconnect:
         log.info("websocket disconnected")
+    finally:
         if gen_task and not gen_task.done():
             gen_task.cancel()
             await asyncio.gather(gen_task, return_exceptions=True)

@@ -20,6 +20,7 @@ from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage
 
+from .diagnostics import ProviderDiagnostic, provider_diagnostic
 from .logging_utils import get_logger
 from .model_resolver import resolve_model_id
 from .naming import generate_name, should_name
@@ -59,6 +60,9 @@ class GenerationComplete:
 @dataclass(frozen=True)
 class GenerationError:
     error: Exception
+    incident_id: str | None = None
+    category: str | None = None
+    status: int | None = None
 
 
 @dataclass(frozen=True)
@@ -346,7 +350,9 @@ class LoomSession:
     def cancel(self) -> None:
         self._cancelled.set()
 
-    async def generate(self) -> AsyncGenerator[GenerationEvent, None]:
+    async def generate(
+        self, *, max_context_tokens: int | None = None
+    ) -> AsyncGenerator[GenerationEvent, None]:
         self._cancelled.clear()
         state = self.get_state()
         source_node_id = state.current_node_id
@@ -365,13 +371,32 @@ class LoomSession:
             yield GenerationError(error=RuntimeError("no enabled model branches"))
             return
 
+        if max_context_tokens is not None:
+            for _model_idx, _branch_idx, plan in branch_plan:
+                resolved_model = resolve_model_id(plan.model)
+                strategy = detect_strategy(resolved_model, None).name
+                prompt, messages = _usage_prompt(
+                    resolved_model, prefix, strategy, context
+                )
+                usage = estimate_usage(
+                    resolved_model,
+                    prompt,
+                    "",
+                    prompt_messages=messages,
+                )
+                if usage.prompt_tokens > max_context_tokens:
+                    yield GenerationError(
+                        error=RuntimeError("assembled prompt exceeds context limit")
+                    )
+                    return
+
         buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
-        branch_errors: dict[int, Exception] = {}
+        branch_errors: dict[int, ProviderDiagnostic] = {}
         cancelled = False
 
-        queue: asyncio.Queue[tuple[str, int, int, int, str | Exception | None]] = (
-            asyncio.Queue()
-        )
+        queue: asyncio.Queue[
+            tuple[str, int, int, int, str | ProviderDiagnostic | None]
+        ] = asyncio.Queue()
 
         async def run_branch(
             slot_idx: int, model_idx: int, branch_idx: int, plan: ModelPlanEntry
@@ -389,12 +414,15 @@ class LoomSession:
                         break
                     await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
-                log.exception(
+                diagnostic = provider_diagnostic(exc)
+                log.error(
                     "generation branch failed "
                     f"model={plan.model} model_idx={model_idx} "
-                    f"branch_idx={branch_idx} slot_idx={slot_idx}"
+                    f"branch_idx={branch_idx} slot_idx={slot_idx} "
+                    f"category={diagnostic.category} status={diagnostic.status} "
+                    f"incident_id={diagnostic.incident_id}"
                 )
-                await queue.put(("error", slot_idx, model_idx, branch_idx, exc))
+                await queue.put(("error", slot_idx, model_idx, branch_idx, diagnostic))
             finally:
                 await queue.put(("done", slot_idx, model_idx, branch_idx, None))
 
@@ -416,7 +444,7 @@ class LoomSession:
                 if kind == "done":
                     done += 1
                 elif kind == "error":
-                    assert isinstance(payload, Exception)
+                    assert isinstance(payload, ProviderDiagnostic)
                     branch_errors[slot_idx] = payload
                 else:
                     tok = str(payload)
@@ -463,16 +491,17 @@ class LoomSession:
         if branch_errors:
             first = next(iter(branch_errors.values()))
             count = len(branch_errors)
-            message = (
-                str(first)
-                if count == 1
-                else f"{count} branches failed; first error: {first}"
-            )
+            message = f"{count} provider branch{'es' if count != 1 else ''} failed"
             log.warning(
                 "generation partial failure "
-                f"source_node={source_node_id} failed={count} message={message}"
+                f"source_node={source_node_id} failed={count}"
             )
-            yield GenerationError(error=RuntimeError(message))
+            yield GenerationError(
+                error=RuntimeError(message),
+                incident_id=first.incident_id,
+                category=first.category,
+                status=first.status,
+            )
 
     def _save_completions(
         self,

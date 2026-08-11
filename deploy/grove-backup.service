@@ -1,0 +1,19 @@
+[Unit]
+Description=Back up the Grove SQLite database
+After=grove.service
+
+[Service]
+Type=oneshot
+User=grove
+Group=grove
+UMask=0077
+ExecStart=/opt/grove/venv/bin/python /opt/grove/app/deploy/backup_sqlite.py /var/lib/grove/grove.sqlite /var/backups/grove 14
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+CapabilityBoundingSet=
+RestrictAddressFamilies=AF_UNIX
+ReadOnlyPaths=/var/lib/grove
+ReadWritePaths=/var/backups/grove

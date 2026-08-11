@@ -1,4 +1,6 @@
 import asyncio
+import dataclasses
+import ipaddress
 import json as _json
 import sys
 from pathlib import Path
@@ -1051,6 +1053,15 @@ def loom_serve(
     db: Annotated[
         Path | None, typer.Option("--db", help="SQLite generation database path")
     ] = None,
+    production: Annotated[
+        bool, typer.Option("--production", help="Enable fail-closed production mode")
+    ] = False,
+    public: Annotated[
+        bool, typer.Option("--public", help="Allow binding to a non-loopback address")
+    ] = False,
+    enable_docs: Annotated[
+        bool, typer.Option("--enable-docs", help="Enable API docs in production")
+    ] = False,
 ) -> None:
     """Start the basemode-loom web API server."""
     import uvicorn
@@ -1058,9 +1069,25 @@ def loom_serve(
     from .api import create_app
     from .config import load_config
 
+    try:
+        is_loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        is_loopback = host.lower() == "localhost"
+    if not is_loopback and not public:
+        raise typer.BadParameter(
+            "non-loopback binds require the explicit --public flag", param_hint="--host"
+        )
+
     store = GenerationStore(db)
-    web_app = create_app(store, load_config())
-    console.print(f"[dim]basemode-loom API → http://{host}:{port}/docs[/dim]")
+    config = load_config()
+    server = config.server
+    if production:
+        server = dataclasses.replace(server, production=True)
+    if enable_docs:
+        server = dataclasses.replace(server, enable_docs=True)
+    config = dataclasses.replace(config, server=server)
+    web_app = create_app(store, config)
+    console.print(f"[dim]basemode-loom API → http://{host}:{port}[/dim]")
     uvicorn.run(web_app, host=host, port=port)
 
 

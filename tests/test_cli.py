@@ -22,6 +22,13 @@ def test_loom_help_lists_stateful_commands() -> None:
     assert "nodes" in result.output
 
 
+def test_serve_requires_public_acknowledgement_for_non_loopback_bind() -> None:
+    result = runner.invoke(app, ["serve", "--host", "0.0.0.0"])
+
+    assert result.exit_code != 0
+    assert "--public" in result.output
+
+
 def test_loom_continue_and_branch_selection(tmp_path, monkeypatch) -> None:
     db = tmp_path / "generations.sqlite"
 

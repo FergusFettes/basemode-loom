@@ -624,7 +624,9 @@ async def test_generate_error_propagated(store, monkeypatch):
 
     error_events = [e for e in events if isinstance(e, GenerationError)]
     assert len(error_events) == 1
-    assert "API down" in str(error_events[0].error)
+    assert "API down" not in str(error_events[0].error)
+    assert error_events[0].category == "provider_error"
+    assert error_events[0].incident_id is not None
     assert not any(isinstance(e, GenerationComplete) for e in events)
 
 

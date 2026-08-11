@@ -10,6 +10,7 @@ basemode-loom loads configuration from two TOML files, with project config overr
 - Keybindings for the TUI
 - Default model, max tokens, temperature, and branch count
 - Per-model overrides for generation defaults
+- Web-server origins, request/generation limits, and production behavior
 
 ## Example
 
@@ -34,7 +35,26 @@ n_branches = 3
 [model."claude-opus-4-7"]
 n_branches = 2
 temperature = 0.8
+
+[server]
+allowed_origins = ["https://grove.example.com"]
+max_message_bytes = 1048576
+max_field_bytes = 262144
+max_context_tokens = 32768
+concurrent_generation_jobs = 1
+max_branches_per_job = 8
+generation_timeout_seconds = 120
+max_output_tokens = 2000
 ```
+
+Server settings can also be overridden with environment variables. Their names
+are the upper-case setting names prefixed with `BASEMODE_LOOM_`, for example
+`BASEMODE_LOOM_MAX_CONTEXT_TOKENS`. `BASEMODE_LOOM_ALLOWED_ORIGINS` accepts a
+comma-separated list or a JSON string array. Environment values override TOML.
+
+`basemode-loom serve --production` requires a non-empty explicit origin
+allowlist and disables the API documentation surfaces. It does not expose
+server settings through `/api/config`.
 
 ## Default keybindings
 

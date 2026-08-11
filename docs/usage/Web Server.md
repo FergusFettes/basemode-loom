@@ -8,6 +8,25 @@ basemode-loom includes a FastAPI server for headless use or building custom fron
 basemode-loom serve --host 127.0.0.1 --port 8000
 ```
 
+The default development mode enables docs, accepts missing WebSocket origins,
+and automatically permits common loopback browser origins. It still binds only
+to `127.0.0.1`. A non-loopback bind requires both `--host` and the explicit
+`--public` acknowledgement.
+
+For deployment, configure `[server]` in TOML or `BASEMODE_LOOM_*` environment
+variables and use:
+
+```bash
+basemode-loom serve --production --host 127.0.0.1 --port 8010 \
+  --db /var/lib/grove/grove.sqlite
+```
+
+Production startup fails when `allowed_origins` is empty. Production also
+requires an allowed `Origin` on WebSocket handshakes and disables `/docs`,
+`/redoc`, and `/openapi.json`; `--enable-docs` explicitly overrides the latter.
+HTTP clients without an `Origin` remain supported. Origin enforcement is a
+browser boundary, not authentication.
+
 Or from Python:
 
 ```python
@@ -22,7 +41,7 @@ uvicorn.run(app, host="127.0.0.1", port=8000)
 
 ## REST API
 
-FastAPI publishes the API contract automatically:
+In development, FastAPI publishes the API contract automatically:
 
 - `/openapi.json` contains the machine-readable OpenAPI 3 schema.
 - `/docs` provides an interactive Swagger UI.
@@ -92,7 +111,8 @@ request remains open until the operation completes.
 GET /api/config
 ```
 
-Returns the merged user/project config currently loaded by the server.
+Returns the UI-safe merged user/project config currently loaded by the server.
+Server security settings are deliberately omitted.
 
 ### List trees
 
@@ -192,6 +212,13 @@ The WebSocket handler manages a full `LoomSession`. On connection, send an init 
 ```
 
 The server then streams state updates and generation events back to the client as JSON.
+
+Generation jobs are rejected rather than queued when global capacity is full;
+the server sends a typed `generation_busy` message. It similarly sends
+`generation_limit_exceeded` before contacting a provider when the complete
+enabled model plan exceeds the branch or output-token limit. Message/field
+limits, assembled-prompt limits, and a whole-job timeout provide additional
+guards. Provider exception details are not returned to clients.
 
 ### Client messages
 

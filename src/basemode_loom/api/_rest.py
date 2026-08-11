@@ -12,6 +12,7 @@ from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
 from ..store import GenerationStore, Node
+from ._security import value_exceeds_field_limit
 from ._serialize import node_to_dict, tree_to_dict
 
 router = APIRouter(prefix="/api")
@@ -148,7 +149,9 @@ def build_embeddings(
             incremental=body.incremental,
         )
     except (RuntimeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400, detail={"code": "embedding_build_failed"}
+        ) from exc
     return EmbeddingBuildResponse(
         available=True,
         model=embedder.name,
@@ -316,7 +319,14 @@ def _facet_counts(entries: list[TreeCatalogEntry]) -> dict[str, list[FacetValue]
 
 
 @router.post("/roots", status_code=201)
-def create_root(body: CreateRootBody, store: StoreDep) -> dict:
+def create_root(body: CreateRootBody, store: StoreDep, request: Request) -> dict:
+    # The total body is bounded by middleware; this separately prevents a
+    # single persisted value from consuming the whole allowance.
+    request_values = body.model_dump()
+    if value_exceeds_field_limit(
+        request_values, request.app.state.config.server.max_field_bytes
+    ):
+        raise HTTPException(status_code=413, detail={"code": "field_too_large"})
     meta: dict[str, Any] = {}
     for key in ("name", "model", "max_tokens", "n_branches", "context"):
         val = getattr(body, key)
@@ -379,11 +389,16 @@ def list_models() -> dict:
             return {"models": picker(available_only=True)}
         return {"models": bm.list_models(available_only=True)}
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=500,
+            detail={"code": "model_discovery_failed"},
+        ) from exc
 
 
 @router.post("/import", status_code=201)
-def import_tree(body: dict, store: StoreDep) -> dict:
+def import_tree(body: dict, store: StoreDep, request: Request) -> dict:
+    if value_exceeds_field_limit(body, request.app.state.config.server.max_field_bytes):
+        raise HTTPException(status_code=413, detail={"code": "field_too_large"})
     nodes_data = body.get("nodes", [])
     if not isinstance(nodes_data, list):
         raise HTTPException(status_code=422, detail="nodes must be a list")
