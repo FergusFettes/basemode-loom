@@ -6,6 +6,12 @@ under Unreleased.
 
 ## Unreleased
 
+### Changed
+
+- Tag releases now build and publish through GitHub Actions with PyPI OIDC
+  trusted publishing; manual workflow runs exercise the build without
+  publishing.
+
 ## 0.3.0 - 2026-08-11
 
 ### Added
