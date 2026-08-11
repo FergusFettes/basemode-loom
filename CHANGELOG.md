@@ -6,10 +6,24 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.3.0 - 2026-08-11
+
 ### Added
 
 - A weekly GitHub Actions release pipeline that tests newer Basemode releases,
   bumps Loom's patch version, and publishes it to PyPI and GitHub.
+- Production server mode with exact HTTP/WebSocket origin allowlists,
+  fail-closed configuration validation, request and generation safeguards,
+  global concurrency control, timeouts, and sanitized incident diagnostics.
+- Hardened nginx, systemd, and daily SQLite backup deployment templates for a
+  private single-user Grove installation.
+
+### Changed
+
+- `serve` continues to bind to `127.0.0.1` by default and now requires
+  `--public` before accepting a non-loopback bind.
+- Production mode disables the OpenAPI documentation surfaces unless they are
+  explicitly enabled.
 
 ## 0.2.1 - 2026-08-11
 
