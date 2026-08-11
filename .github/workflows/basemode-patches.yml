@@ -5,6 +5,10 @@ on:
   schedule:
     - cron: "0 17 * * 6"
 
+concurrency:
+  group: basemode-patch-release
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
@@ -35,21 +39,84 @@ jobs:
       - name: Update minimum Basemode version
         run: uv add "basemode>=${{ steps.basemode.outputs.version }}"
 
-      - name: Run core checks
-        run: |
-          uv sync --group dev
-          make lint-core
-          make test-core
-
-      - name: Commit dependency update
+      - name: Detect dependency change
+        id: changes
         shell: bash
         run: |
           if git diff --quiet -- pyproject.toml uv.lock; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "Basemode is already current."
-            exit 0
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Bump Loom patch version
+        if: steps.changes.outputs.changed == 'true'
+        id: loom
+        shell: bash
+        run: |
+          uv version --bump patch
+          echo "version=$(uv version --short)" >> "$GITHUB_OUTPUT"
+
+      - name: Update changelog
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          BASEMODE_VERSION: ${{ steps.basemode.outputs.version }}
+          LOOM_VERSION: ${{ steps.loom.outputs.version }}
+        run: |
+          python - <<'PY'
+          import os
+          from datetime import date
+          from pathlib import Path
+
+          path = Path("CHANGELOG.md")
+          marker = "## Unreleased\n"
+          entry = (
+              f"\n## {os.environ['LOOM_VERSION']} - {date.today().isoformat()}\n\n"
+              "### Changed\n\n"
+              f"- Require Basemode {os.environ['BASEMODE_VERSION']} or newer.\n"
+          )
+          text = path.read_text()
+          if marker not in text:
+              raise SystemExit("CHANGELOG.md has no Unreleased section")
+          path.write_text(text.replace(marker, marker + entry, 1))
+          PY
+
+      - name: Run release checks
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          uv sync --group dev
+          make release-check
+
+      - name: Prepare release commit and tag
+        if: steps.changes.outputs.changed == 'true'
+        shell: bash
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add pyproject.toml uv.lock
-          git commit -m "chore(deps): require basemode ${{ steps.basemode.outputs.version }}"
-          git push
+          git add CHANGELOG.md pyproject.toml uv.lock
+          git commit -m "Release ${{ steps.loom.outputs.version }}"
+          git tag -a "v${{ steps.loom.outputs.version }}" \
+            -m "basemode-loom ${{ steps.loom.outputs.version }}"
+
+      - name: Publish to PyPI
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
+        run: uv publish dist/*
+
+      - name: Push release commit and tag
+        if: steps.changes.outputs.changed == 'true'
+        run: |
+          git push --atomic origin \
+            HEAD:${{ github.event.repository.default_branch }} \
+            "v${{ steps.loom.outputs.version }}"
+
+      - name: Create GitHub release
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v${{ steps.loom.outputs.version }}" \
+            --title "basemode-loom ${{ steps.loom.outputs.version }}" \
+            --generate-notes
