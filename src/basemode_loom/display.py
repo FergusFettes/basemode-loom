@@ -29,9 +29,7 @@ class DisplaySpan:
     style: Literal["model", "context"]
 
 
-LineStyle = Literal[
-    "normal", "bold", "dim", "path", "current", "selected", "header"
-]
+LineStyle = Literal["normal", "bold", "dim", "path", "current", "selected", "header"]
 
 
 @dataclass(frozen=True)
@@ -146,9 +144,7 @@ def _role_of(state: SessionState, node_id: str) -> str | None:
     return None
 
 
-def _segment_runs(
-    segments: tuple, /
-) -> list[tuple[str | None, str]]:
+def _segment_runs(segments: tuple, /) -> list[tuple[str | None, str]]:
     """Collapse consecutive same-role segments into (role, joined_text) runs."""
     runs: list[tuple[str | None, str]] = []
     for seg in segments:

@@ -6,6 +6,8 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-11
+
 ### Added
 
 - Searchable full-screen tree picker with category, domain, source, and model

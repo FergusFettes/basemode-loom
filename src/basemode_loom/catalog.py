@@ -89,9 +89,7 @@ def build_tree_catalog(store: GenerationStore) -> list[TreeCatalogEntry]:
                 category=classification.get("category", ""),
                 domain=classification.get("domain", ""),
                 sources=sources,
-                models=tuple(
-                    model.split("/")[-1] for model in facet.get("models", [])
-                ),
+                models=tuple(model.split("/")[-1] for model in facet.get("models", [])),
             )
         )
     return entries

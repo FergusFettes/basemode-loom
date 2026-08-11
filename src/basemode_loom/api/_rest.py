@@ -129,9 +129,7 @@ def list_tree_catalog(
     if query:
         hits = backend.search(query, limit=max(len(entries), 1))
         if hits or status.keyword or status.semantic:
-            ranking = {
-                hit.tree_id: (hit.score, hit.best_node_id) for hit in hits
-            }
+            ranking = {hit.tree_id: (hit.score, hit.best_node_id) for hit in hits}
         else:
             metadata_query = query.lower()
 
@@ -248,7 +246,9 @@ def _facet_counts(entries: list[TreeCatalogEntry]) -> dict[str, list[FacetValue]
         )
         result[facet] = [
             FacetValue(value=value, count=count)
-            for value, count in sorted(counts.items(), key=lambda item: (-item[1], item[0]))
+            for value, count in sorted(
+                counts.items(), key=lambda item: (-item[1], item[0])
+            )
         ]
     return result
 

@@ -147,11 +147,10 @@ class LoomScreen(Screen):
         tree_cost = f"${state.tree_cost_usd:.6f}"
         if not state.tree_pricing_complete:
             tree_cost += "*"
-        enabled_models = "/".join(
-            e.model.split("/")[-1]
-            for e in state.model_plan
-            if e.enabled
-        ) or s.model.split("/")[-1]
+        enabled_models = (
+            "/".join(e.model.split("/")[-1] for e in state.model_plan if e.enabled)
+            or s.model.split("/")[-1]
+        )
         if self._edit_mode:
             node_label = (self._edit_node_id or s._current_id)[:8]
             info = (

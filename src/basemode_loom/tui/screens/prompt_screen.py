@@ -30,7 +30,9 @@ def _render_entry(entry: PromptEntry) -> Text:
             label = _ROLE_LABELS.get(role, role.upper())
             style = _ROLE_STYLES.get(role, Style(bold=True))
             result.append(f"── {label} ", style=style)
-            result.append("─" * max(0, 60 - len(label) - 4) + "\n", style=Style(dim=True))
+            result.append(
+                "─" * max(0, 60 - len(label) - 4) + "\n", style=Style(dim=True)
+            )
             result.append(content + "\n\n")
     else:
         result.append("── PROMPT ", style=Style(bold=True))

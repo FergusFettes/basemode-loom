@@ -32,3 +32,6 @@ jobs:
 
       - name: Build docs
         run: uv run mkdocs build --strict
+
+      - name: Build and validate package
+        run: make build

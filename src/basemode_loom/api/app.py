@@ -30,9 +30,7 @@ def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastA
         app.state.config = config
         yield
 
-    app = FastAPI(
-        title="basemode-loom", version=_package_version(), lifespan=lifespan
-    )
+    app = FastAPI(title="basemode-loom", version=_package_version(), lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],

@@ -240,7 +240,9 @@ class LoomSession:
         )
 
     def _get_continuation_text(self, selected_child: Node) -> str:
-        return "".join(seg.text for seg in self._get_continuation_segments(selected_child))
+        return "".join(
+            seg.text for seg in self._get_continuation_segments(selected_child)
+        )
 
     def _get_continuation_segments(
         self, selected_child: Node
@@ -891,7 +893,9 @@ class LoomSession:
                 continue
             model_id = resolve_model_id(plan.model)
             strategy = detect_strategy(model_id, None).name
-            raw_prefix, raw_messages = _usage_prompt(model_id, prefix, strategy, context)
+            raw_prefix, raw_messages = _usage_prompt(
+                model_id, prefix, strategy, context
+            )
             messages = (
                 tuple((m["role"], m["content"]) for m in raw_messages)
                 if raw_messages is not None

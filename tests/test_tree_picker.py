@@ -98,8 +98,13 @@ def varied_store(tmp_path):
     # Tree A: created first, source codex, model gpt-5, small.
     a = store.create_root("alpha root", metadata={"source": "codex"})
     store.add_child(
-        a.id, " a1", model="openai/gpt-5", strategy="s",
-        max_tokens=10, temperature=0.9, metadata={"source": "codex"},
+        a.id,
+        " a1",
+        model="openai/gpt-5",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+        metadata={"source": "codex"},
     )
     store.update_tree_settings(
         a.tree_id, metadata={"category": "code", "domain": "agent"}
@@ -109,8 +114,13 @@ def varied_store(tmp_path):
     parent = b.id
     for i in range(3):
         child = store.add_child(
-            parent, f" b{i}", model="anthropic/claude-opus-4-8", strategy="s",
-            max_tokens=10, temperature=0.9, metadata={"source": "claude"},
+            parent,
+            f" b{i}",
+            model="anthropic/claude-opus-4-8",
+            strategy="s",
+            max_tokens=10,
+            temperature=0.9,
+            metadata={"source": "claude"},
         )
         parent = child.id
     store.update_tree_settings(b.tree_id, name="beta")

@@ -101,7 +101,8 @@ class TreePickerView(ScrollView):
             is_open = entry.root.id == self._current_root_id
             hdr_style, body_style = self._styles(selected, is_open)
             result.append(
-                self._header_line(entry, selected, is_open, width) + "\n", style=hdr_style
+                self._header_line(entry, selected, is_open, width) + "\n",
+                style=hdr_style,
             )
             result.append(self._meta_line(entry, width) + "\n", style=Style(dim=True))
             indent = "   "
