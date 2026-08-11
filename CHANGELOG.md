@@ -12,6 +12,8 @@ under Unreleased.
   compatible with Guardian Angel's `nodes_vec` and `vec_meta` schema.
 - Typed embedding status and build endpoints at `GET /api/embeddings` and
   `POST /api/embeddings`, published in the generated OpenAPI schema.
+- A weekly GitHub Actions check that opens a tested dependency PR when a newer
+  Basemode release is available.
 
 ## 0.2.0 - 2026-08-11
 

@@ -1,0 +1,60 @@
+name: Check for Basemode patches
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Basemode refreshes its verified models at 06:17 UTC on Mondays.
+    - cron: "17 7 * * 1"
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Read latest Basemode release
+        id: basemode
+        shell: bash
+        run: |
+          version="$({ curl --fail --silent --show-error --retry 3 \
+            https://pypi.org/pypi/basemode/json; } | \
+            python -c 'import json, sys; print(json.load(sys.stdin)["info"]["version"])')"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Update minimum Basemode version
+        run: uv add "basemode>=${{ steps.basemode.outputs.version }}"
+
+      - name: Run core checks
+        run: |
+          uv sync --group dev
+          make lint-core
+          make test-core
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore(deps): require basemode ${{ steps.basemode.outputs.version }}"
+          branch: "chore/update-basemode"
+          delete-branch: true
+          title: "chore(deps): require basemode ${{ steps.basemode.outputs.version }}"
+          body: |
+            Automated Basemode patch check, scheduled one hour after Basemode's
+            weekly verified-model refresh.
+
+            - Raises Loom's minimum Basemode version
+            - Refreshes `uv.lock`
+            - Runs lint and core tests
+          labels: dependencies
