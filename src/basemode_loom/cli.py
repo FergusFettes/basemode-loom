@@ -446,6 +446,58 @@ def loom_roots(
     console.print(table)
 
 
+@app.command("embed")
+def loom_embed(
+    db: Annotated[
+        Path | None, typer.Option("--db", help="SQLite generation database path")
+    ] = None,
+    model: Annotated[
+        str,
+        typer.Option(
+            "--model",
+            help="Embedder: 'hash', 'mlx', or an MLX/Hugging Face model ID",
+        ),
+    ] = "hash",
+    dim: Annotated[
+        int, typer.Option("--dim", help="Vector dimension for the hash embedder")
+    ] = 256,
+    min_chars: Annotated[
+        int, typer.Option("--min-chars", help="Skip nodes shorter than this")
+    ] = 1,
+    batch_size: Annotated[
+        int, typer.Option("--batch-size", help="Nodes per embedding batch")
+    ] = 64,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Embed new nodes and prune deleted nodes when model metadata matches",
+        ),
+    ] = False,
+) -> None:
+    """Build an in-database sqlite-vec index over node text."""
+    from .retrieval.embedder import get_embedder
+    from .retrieval.vectors import embed_corpus
+
+    store = GenerationStore(db)
+    try:
+        embedder = get_embedder(model, dim=dim)
+        embedded = embed_corpus(
+            store.db_path,
+            embedder,
+            min_chars=min_chars,
+            batch_size=batch_size,
+            incremental=incremental,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    scope = "new node(s)" if incremental else "node(s)"
+    console.print(
+        f"[dim]Embedded {embedded:,} {scope} with {embedder.name} "
+        f"(dim={embedder.dim}) into sqlite-vec ({store.db_path})[/dim]"
+    )
+
+
 @app.command("stats")
 def loom_stats(
     node_id: Annotated[

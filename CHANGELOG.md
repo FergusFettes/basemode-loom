@@ -6,6 +6,11 @@ under Unreleased.
 
 ## Unreleased
 
+### Added
+
+- `basemode-loom embed` for full or incremental sqlite-vec index construction,
+  compatible with Guardian Angel's `nodes_vec` and `vec_meta` schema.
+
 ## 0.2.0 - 2026-08-11
 
 ### Added

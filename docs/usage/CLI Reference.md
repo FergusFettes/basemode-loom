@@ -127,6 +127,31 @@ basemode-loom select <NODE_ID>
 
 ## Analysis
 
+### `embed`
+
+Build a sqlite-vec semantic index inside the selected loom database:
+
+```bash
+basemode-loom embed --db corpus.sqlite --model hash --dim 256
+basemode-loom embed --db corpus.sqlite --model mlx
+basemode-loom embed --db corpus.sqlite --model mlx --incremental
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--model` | `hash` | `hash`, `mlx`, or an MLX/Hugging Face model ID |
+| `--dim` | `256` | Vector dimension for the hash embedder |
+| `--min-chars` | `1` | Skip shorter node segments |
+| `--batch-size` | `64` | Number of nodes embedded per batch |
+| `--incremental` | `false` | Reuse matching vectors, add new nodes, and prune deleted nodes |
+| `--db` | default DB | Database to update |
+
+The default hash embedder is deterministic and useful for testing the complete
+pipeline, but MLX provides meaningful semantic retrieval. Install
+`basemode-loom[embed]` for hash indexing or `basemode-loom[embed-mlx]` for MLX.
+Changing the model or vector dimension causes an incremental run to rebuild the
+entire index so query and document vectors remain compatible.
+
 ### `stats`
 
 Show quantitative statistics for a tree.

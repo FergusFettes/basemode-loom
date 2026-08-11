@@ -58,8 +58,15 @@ basemode-loom view --db /path/to/corpus.sqlite
 ```
 
 Press `/` in the tree picker, enter a query, and press `Enter` to rank matching
-trees. Semantic search queries an existing corpus index; basemode-loom does not
-build embeddings for ordinary loom databases.
+trees. Build or update an embedding index directly with:
+
+```bash
+basemode-loom embed --db /path/to/corpus.sqlite --model mlx
+basemode-loom embed --db /path/to/corpus.sqlite --model mlx --incremental
+```
+
+The MLX model is downloaded lazily on first use. Embedding dependencies remain
+isolated in the optional `embed` and `embed-mlx` installation extras.
 
 ## Model Selection
 

@@ -33,8 +33,8 @@ uv sync --extra embed-mlx
 ```
 
 If a database uses the built-in deterministic hash embedder, the lighter
-`embed` extra is sufficient. These extras query an existing vector index; they
-do not create embeddings for a normal loom database.
+`embed` extra is sufficient. Both extras support building and querying an index;
+the base installation does not install sqlite-vec or MLX.
 
 ## Dependencies
 

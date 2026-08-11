@@ -7,6 +7,7 @@ trees, since the tree picker is tree-level.
 
 from __future__ import annotations
 
+from .embedder import HashingEmbedder, MlxEmbedder, get_embedder
 from .search import (
     KeywordBackend,
     SearchBackend,
@@ -14,11 +15,17 @@ from .search import (
     TreeHit,
     get_backend,
 )
+from .vectors import embed_corpus, vector_count
 
 __all__ = [
+    "HashingEmbedder",
     "KeywordBackend",
+    "MlxEmbedder",
     "SearchBackend",
     "SearchStatus",
     "TreeHit",
+    "embed_corpus",
     "get_backend",
+    "get_embedder",
+    "vector_count",
 ]
