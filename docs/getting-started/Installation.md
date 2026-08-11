@@ -16,8 +16,9 @@ uv sync
 
 ## Semantic search
 
-Semantic search is optional. It is available when the selected SQLite database
-already contains a `nodes_vec` index and matching `vec_meta` metadata.
+Semantic search and index construction are optional. They are available when
+the matching embedding extra is installed and the selected SQLite database
+contains a `nodes_vec` index with `vec_meta` metadata.
 
 On Apple silicon, install the MLX embedding backend used by Guardian Angel
 corpora:

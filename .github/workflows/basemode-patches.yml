@@ -71,15 +71,25 @@ jobs:
 
           path = Path("CHANGELOG.md")
           marker = "## Unreleased\n"
-          entry = (
-              f"\n## {os.environ['LOOM_VERSION']} - {date.today().isoformat()}\n\n"
-              "### Changed\n\n"
-              f"- Require Basemode {os.environ['BASEMODE_VERSION']} or newer.\n"
-          )
           text = path.read_text()
           if marker not in text:
               raise SystemExit("CHANGELOG.md has no Unreleased section")
-          path.write_text(text.replace(marker, marker + entry, 1))
+          prefix, tail = text.split(marker, 1)
+          boundary = tail.find("\n## ")
+          if boundary < 0:
+              raise SystemExit("CHANGELOG.md has no prior release section")
+          unreleased = tail[:boundary].strip()
+          history = tail[boundary:]
+          sections = [unreleased] if unreleased else []
+          sections.append(
+              "### Changed\n\n"
+              f"- Require Basemode {os.environ['BASEMODE_VERSION']} or newer."
+          )
+          release = (
+              f"\n## {os.environ['LOOM_VERSION']} - {date.today().isoformat()}\n\n"
+              + "\n\n".join(sections)
+          )
+          path.write_text(prefix + marker + release + history)
           PY
 
       - name: Run release checks

@@ -6,6 +6,11 @@ under Unreleased.
 
 ## Unreleased
 
+### Added
+
+- A weekly GitHub Actions release pipeline that tests newer Basemode releases,
+  bumps Loom's patch version, and publishes it to PyPI and GitHub.
+
 ## 0.2.1 - 2026-08-11
 
 ### Added
@@ -14,8 +19,6 @@ under Unreleased.
   compatible with Guardian Angel's `nodes_vec` and `vec_meta` schema.
 - Typed embedding status and build endpoints at `GET /api/embeddings` and
   `POST /api/embeddings`, published in the generated OpenAPI schema.
-- A weekly GitHub Actions release pipeline that tests newer Basemode releases,
-  bumps Loom's patch version, and publishes it to PyPI and GitHub.
 
 ## 0.2.0 - 2026-08-11
 

@@ -57,6 +57,35 @@ sources, models, and, for ranked searches, `score` and `best_node_id`. The
 `search` object reports whether keyword and semantic retrieval are currently
 available and explains missing optional dependencies.
 
+### Manage embeddings
+
+```
+GET /api/embeddings
+```
+
+Reports whether the active database has a semantic index, including its model,
+vector dimension, and indexed vector count.
+
+```
+POST /api/embeddings
+Content-Type: application/json
+
+{
+  "model": "mlx",
+  "min_chars": 1,
+  "batch_size": 64,
+  "incremental": true
+}
+```
+
+Builds or incrementally updates the semantic index in the server's configured
+database. `model` accepts `hash`, `mlx`, or an MLX/Hugging Face model ID. The
+optional `dim` field controls the hash embedder dimension and defaults to 256.
+
+The server must be installed with `basemode-loom[embed]` for hash indexes or
+`basemode-loom[embed-mlx]` for MLX indexes. Index builds can take time and the
+request remains open until the operation completes.
+
 ### Get config
 
 ```
