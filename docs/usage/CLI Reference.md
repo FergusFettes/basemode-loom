@@ -152,6 +152,10 @@ pipeline, but MLX provides meaningful semantic retrieval. Install
 Changing the model or vector dimension causes an incremental run to rebuild the
 entire index so query and document vectors remain compatible.
 
+The HTTP API exposes the same active-database operation as
+`POST /api/embeddings`; `GET /api/embeddings` reports its current model,
+dimension, and vector count. Both operations are included in `/openapi.json`.
+
 ### `stats`
 
 Show quantitative statistics for a tree.

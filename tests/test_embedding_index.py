@@ -3,8 +3,10 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 
+from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
+from basemode_loom.api.app import create_app
 from basemode_loom.cli import app
 from basemode_loom.retrieval import KeywordBackend
 from basemode_loom.retrieval.embedder import get_embedder
@@ -106,3 +108,43 @@ def test_embed_corpus_validates_batch_and_text_limits(tmp_path) -> None:
             assert str(exc) == message
         else:
             raise AssertionError("expected ValueError")
+
+
+def test_embedding_api_builds_and_reports_index(tmp_path) -> None:
+    store, _first_id, _second_id = _sample_store(tmp_path)
+
+    with TestClient(create_app(store)) as client:
+        empty = client.get("/api/embeddings")
+        built = client.post(
+            "/api/embeddings",
+            json={"model": "hash", "dim": 64, "batch_size": 1},
+        )
+        status = client.get("/api/embeddings")
+
+    assert empty.json() == {
+        "available": False,
+        "model": None,
+        "dim": None,
+        "vectors": 0,
+    }
+    assert built.status_code == 200
+    assert built.json() == {
+        "available": True,
+        "model": "hash",
+        "dim": 64,
+        "vectors": 2,
+        "indexed": 2,
+        "incremental": False,
+    }
+    assert status.json()["vectors"] == 2
+
+
+def test_embedding_api_is_published_in_openapi(tmp_path) -> None:
+    store, _first_id, _second_id = _sample_store(tmp_path)
+    schema = create_app(store).openapi()
+
+    assert set(schema["paths"]["/api/embeddings"]) == {"get", "post"}
+    request = schema["paths"]["/api/embeddings"]["post"]["requestBody"]
+    assert request["content"]["application/json"]["schema"]["$ref"].endswith(
+        "/EmbeddingBuildRequest"
+    )

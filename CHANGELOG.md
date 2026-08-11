@@ -10,6 +10,8 @@ under Unreleased.
 
 - `basemode-loom embed` for full or incremental sqlite-vec index construction,
   compatible with Guardian Angel's `nodes_vec` and `vec_meta` schema.
+- Typed embedding status and build endpoints at `GET /api/embeddings` and
+  `POST /api/embeddings`, published in the generated OpenAPI schema.
 
 ## 0.2.0 - 2026-08-11
 

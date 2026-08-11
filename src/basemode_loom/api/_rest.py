@@ -8,7 +8,8 @@ from pydantic import BaseModel, Field
 
 from ..catalog import FACETS, TreeCatalogEntry, build_tree_catalog
 from ..config import Config, config_to_dict
-from ..retrieval import get_backend
+from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
+from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
 from ..store import GenerationStore, Node
 from ._serialize import node_to_dict, tree_to_dict
@@ -92,9 +93,70 @@ class TreeCatalogResponse(BaseModel):
     search: SearchCapabilities
 
 
+class EmbeddingBuildRequest(BaseModel):
+    model: str = Field(
+        default="hash", description="'hash', 'mlx', or an MLX/Hugging Face model ID"
+    )
+    dim: int = Field(default=256, ge=1, description="Hash embedder vector dimension")
+    min_chars: int = Field(default=1, ge=0)
+    batch_size: int = Field(default=64, ge=1)
+    incremental: bool = False
+
+
+class EmbeddingStatusResponse(BaseModel):
+    available: bool
+    model: str | None = None
+    dim: int | None = None
+    vectors: int = 0
+
+
+class EmbeddingBuildResponse(EmbeddingStatusResponse):
+    indexed: int
+    incremental: bool
+
+
 @router.get("/roots")
 def list_roots(store: StoreDep) -> list[dict]:
     return [_root_summary(store, r) for r in store.roots()]
+
+
+@router.get("/embeddings", response_model=EmbeddingStatusResponse)
+def embedding_status(store: StoreDep) -> EmbeddingStatusResponse:
+    """Describe the semantic index stored in the active corpus database."""
+    with store.connect() as conn:
+        meta = read_meta(conn)
+    return EmbeddingStatusResponse(
+        available=meta is not None,
+        model=meta[0] if meta else None,
+        dim=meta[1] if meta else None,
+        vectors=vector_count(store.db_path) if meta else 0,
+    )
+
+
+@router.post("/embeddings", response_model=EmbeddingBuildResponse)
+def build_embeddings(
+    body: EmbeddingBuildRequest, store: StoreDep
+) -> EmbeddingBuildResponse:
+    """Build or incrementally update the semantic index for the active corpus."""
+    try:
+        embedder = get_embedder(body.model, dim=body.dim)
+        indexed = embed_corpus(
+            store.db_path,
+            embedder,
+            min_chars=body.min_chars,
+            batch_size=body.batch_size,
+            incremental=body.incremental,
+        )
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return EmbeddingBuildResponse(
+        available=True,
+        model=embedder.name,
+        dim=embedder.dim,
+        vectors=vector_count(store.db_path),
+        indexed=indexed,
+        incremental=body.incremental,
+    )
 
 
 TreeSort = Literal["auto", "relevance", "recent", "oldest", "nodes", "name"]
