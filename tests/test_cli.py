@@ -1,3 +1,4 @@
+from click import unstyle
 from typer.testing import CliRunner
 
 from basemode_loom.cli import app
@@ -26,7 +27,9 @@ def test_serve_requires_public_acknowledgement_for_non_loopback_bind() -> None:
     result = runner.invoke(app, ["serve", "--host", "0.0.0.0"])
 
     assert result.exit_code != 0
-    assert "--public" in result.output
+    output = unstyle(result.output)
+    assert "non-loopback binds require" in output
+    assert "--public" in output
 
 
 def test_loom_continue_and_branch_selection(tmp_path, monkeypatch) -> None:
