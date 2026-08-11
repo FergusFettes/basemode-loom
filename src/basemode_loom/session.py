@@ -387,6 +387,7 @@ class LoomSession:
                 ):
                     if self._cancelled.is_set():
                         break
+                    buffers[slot_idx].append(tok)
                     await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
                 log.exception(
@@ -420,7 +421,6 @@ class LoomSession:
                     branch_errors[slot_idx] = payload
                 else:
                     tok = str(payload)
-                    buffers[slot_idx].append(tok)
                     yield TokenReceived(
                         model_idx=model_idx,
                         branch_idx=branch_idx,
