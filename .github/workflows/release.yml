@@ -2,6 +2,7 @@ name: Release
 
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
   workflow_dispatch:
@@ -14,7 +15,78 @@ permissions:
   contents: read
 
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      build: ${{ steps.plan.outputs.build }}
+      publish: ${{ steps.plan.outputs.publish }}
+      tag: ${{ steps.plan.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Decide what this run should do
+        id: plan
+        env:
+          BEFORE: ${{ github.event.before }}
+        shell: bash
+        run: |
+          set -eo pipefail
+          version="$(uv version --short)"
+          build=false
+          publish=false
+          tag=false
+
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            # An explicit tag push releases exactly what the tag points at.
+            build=true
+            publish=true
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            # Manual runs exercise the build without publishing.
+            build=true
+          else
+            # A push to the default branch releases only when the version
+            # actually changed in that push, so ordinary merges do nothing.
+            previous=""
+            if [ -n "${BEFORE}" ] && \
+               git cat-file -e "${BEFORE}:pyproject.toml" 2>/dev/null; then
+              previous="$(git show "${BEFORE}:pyproject.toml" \
+                | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)"
+            fi
+
+            if [ -z "${previous}" ]; then
+              echo "No comparable previous version; not releasing."
+            elif [ "${previous}" = "${version}" ]; then
+              echo "Version unchanged at ${version}; not releasing."
+            elif git ls-remote --exit-code --tags origin \
+                 "refs/tags/v${version}" >/dev/null 2>&1; then
+              # Guard against re-running a merge whose release already shipped.
+              echo "v${version} is already tagged; not releasing again."
+            else
+              echo "Version bumped ${previous} -> ${version}; releasing."
+              build=true
+              publish=true
+              tag=true
+            fi
+          fi
+
+          {
+            echo "version=${version}"
+            echo "build=${build}"
+            echo "publish=${publish}"
+            echo "tag=${tag}"
+          } >> "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
+    if: needs.plan.outputs.build == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -55,14 +127,17 @@ jobs:
           retention-days: 7
 
   publish:
-    if: github.event_name == 'push' && github.ref_type == 'tag'
-    needs: build
+    if: needs.plan.outputs.publish == 'true'
+    needs: [plan, build]
     runs-on: ubuntu-latest
     permissions:
       contents: write
       id-token: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
 
@@ -71,6 +146,17 @@ jobs:
         with:
           name: distributions
           path: dist/
+
+      - name: Tag the release
+        if: needs.plan.outputs.tag == 'true'
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${VERSION}" -m "basemode-loom ${VERSION}"
+          git push origin "v${VERSION}"
 
       - name: Publish to PyPI
         run: >-
@@ -81,9 +167,10 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.plan.outputs.version }}
         run: >-
-          gh release create "$GITHUB_REF_NAME"
+          gh release create "v${VERSION}"
           --repo "$GITHUB_REPOSITORY"
           --verify-tag
-          --title "basemode-loom ${GITHUB_REF_NAME#v}"
+          --title "basemode-loom ${VERSION}"
           --generate-notes
