@@ -119,6 +119,17 @@ class ServerConfig:
     generation_timeout_seconds: float = 600.0
     max_output_tokens: int = 8000
     enable_docs: bool | None = None
+    # Storing a provider key writes it to the machine-wide basemode auth file,
+    # which every caller of this server then generates with. That is what a
+    # local single-user tool wants, and wrong for a shared deployment, so
+    # writes default off whenever production is on. Set explicitly to override
+    # in either direction.
+    allow_credential_writes: bool | None = None
+
+    def credential_writes_enabled(self) -> bool:
+        if self.allow_credential_writes is not None:
+            return self.allow_credential_writes
+        return not self.production
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +259,7 @@ def _server_environment_config() -> dict:
         "GENERATION_TIMEOUT_SECONDS": ("generation_timeout_seconds", float),
         "MAX_OUTPUT_TOKENS": ("max_output_tokens", int),
         "ENABLE_DOCS": ("enable_docs", _parse_bool),
+        "ALLOW_CREDENTIAL_WRITES": ("allow_credential_writes", _parse_bool),
     }
     server: dict = {}
     for suffix, (key, parser) in parsers.items():

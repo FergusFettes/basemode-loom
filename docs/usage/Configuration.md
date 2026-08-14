@@ -45,6 +45,7 @@ concurrent_generation_jobs = 1
 max_branches_per_job = 8
 generation_timeout_seconds = 120
 max_output_tokens = 2000
+allow_credential_writes = false
 ```
 
 Server settings can also be overridden with environment variables. Their names
@@ -55,6 +56,11 @@ comma-separated list or a JSON string array. Environment values override TOML.
 `basemode-loom serve --production` requires a non-empty explicit origin
 allowlist and disables the API documentation surfaces. It does not expose
 server settings through `/api/config`.
+
+`allow_credential_writes` controls whether the API may store provider API
+keys. It defaults to on for a local server and off under `--production`,
+because the key file is machine-wide — see
+[Provider API keys](Web Server.md#provider-api-keys).
 
 ## Default keybindings
 
