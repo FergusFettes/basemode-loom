@@ -197,6 +197,78 @@ Content-Type: application/json
 
 Imports node records directly and returns the inserted count.
 
+### Provider API keys
+
+Keys are stored in basemode's own key file (`~/.config/basemode/auth.json`,
+mode `0600`) through `basemode.keys`, so a key set here is the same key the
+`basemode` CLI and the loom TUI use. A stored key takes effect immediately —
+no restart — because the server also exports it into its own environment.
+
+**Keys are write-only. No endpoint returns a stored key.** The only read
+surface is the masked listing below.
+
+```
+GET /api/keys
+```
+
+```json
+{
+  "providers": [
+    {
+      "provider": "openai",
+      "env_var": "OPENAI_API_KEY",
+      "configured": true,
+      "masked": "sk-p...6789",
+      "source": "stored"
+    }
+  ],
+  "writable": true
+}
+```
+
+`source` is `"stored"` for a key in the key file and `"environment"` for one
+exported into the server's environment, so a UI can explain why generation
+already works without anything stored. `writable` reports whether this server
+accepts writes.
+
+```
+PUT /api/keys/{provider}
+Content-Type: application/json
+
+{"value": "sk-..."}
+```
+
+Returns the same masked status object. The key travels in the body, not the
+path or a query string, to keep it out of access logs and browser history.
+`provider` must be one of basemode's known providers (`openai`, `anthropic`,
+`openrouter`, `groq`, `gemini`, `together`, `moonshot`, `xai`, `zai`);
+anything else is a `404 unknown_provider`, which also stops a caller from
+naming an arbitrary environment variable. A blank value is `422 empty_key`
+and a value over 8 KiB is `413 key_too_large`.
+
+There is currently no delete endpoint: `basemode.keys` exposes no removal
+function, and reimplementing its file format here would risk the two drifting
+apart. Overwrite a key with `PUT`, or edit the auth file directly.
+
+#### Who is allowed to write keys
+
+The key file is machine-wide, so a key written through this API becomes the
+key *every* caller of this server generates with. That is what a local
+single-user tool wants and is wrong for a shared deployment, so writes are
+**disabled by default whenever `production` is on** — `PUT` returns
+`403 credential_writes_disabled` and `GET` reports `"writable": false`.
+
+Origin enforcement is a browser boundary, not authentication, so a production
+server should keep writes off unless it is genuinely single-user and
+network-isolated. Override in either direction with:
+
+```toml
+[server]
+allow_credential_writes = true
+```
+
+or `BASEMODE_LOOM_ALLOW_CREDENTIAL_WRITES=true`.
+
 ## WebSocket API
 
 For live interactive sessions, connect to the WebSocket endpoint:

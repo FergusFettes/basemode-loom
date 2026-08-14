@@ -6,6 +6,22 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.4.0 - 2026-08-14
+
+### Added
+
+- Write-only provider API key storage at `GET /api/keys` and
+  `PUT /api/keys/{provider}`, so a frontend can configure credentials without
+  hand-editing files. Keys are held in basemode's own key file
+  (`~/.config/basemode/auth.json`, mode `0600`) and shared with the `basemode`
+  CLI and the Loom TUI. No endpoint returns a stored key; the only read
+  surface reports a masked preview and whether the key came from the key file
+  or the environment.
+- `server.allow_credential_writes` (and `BASEMODE_LOOM_ALLOW_CREDENTIAL_WRITES`)
+  to control key writes. Writes default to enabled locally and disabled under
+  `--production`, because the key file is machine-wide: a key stored through a
+  shared server becomes the key every caller of that server generates with.
+
 ### Changed
 
 - Tag releases now build and publish through GitHub Actions with PyPI OIDC

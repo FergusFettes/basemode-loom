@@ -8,6 +8,13 @@ from pydantic import BaseModel, Field
 
 from ..catalog import FACETS, TreeCatalogEntry, build_tree_catalog
 from ..config import Config, config_to_dict
+from ..credentials import (
+    MAX_KEY_BYTES,
+    ProviderStatus,
+    is_known_provider,
+    list_provider_status,
+    store_provider_key,
+)
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -114,6 +121,77 @@ class EmbeddingStatusResponse(BaseModel):
 class EmbeddingBuildResponse(EmbeddingStatusResponse):
     indexed: int
     incremental: bool
+
+
+class CredentialStatus(BaseModel):
+    """A provider's key state. Deliberately has no field for the key itself."""
+
+    provider: str
+    env_var: str
+    configured: bool
+    masked: str | None = Field(
+        default=None, description="Elided preview, e.g. 'sk-a...wxyz'. Never the key."
+    )
+    source: str | None = Field(
+        default=None, description="'stored' (this server's key file) or 'environment'"
+    )
+
+
+class CredentialListResponse(BaseModel):
+    providers: list[CredentialStatus]
+    writable: bool = Field(description="Whether this server accepts key writes")
+
+
+class StoreCredentialBody(BaseModel):
+    value: str = Field(description="The provider API key. Write-only.")
+
+
+def _credential_status(status: ProviderStatus) -> CredentialStatus:
+    return CredentialStatus(
+        provider=status.provider,
+        env_var=status.env_var,
+        configured=status.configured,
+        masked=status.masked,
+        source=status.source,
+    )
+
+
+@router.get("/keys", response_model=CredentialListResponse)
+def list_credentials(request: Request) -> CredentialListResponse:
+    """Report which providers have a key configured.
+
+    There is no endpoint that returns a stored key, by design — this is the
+    only read surface, and it is masked.
+    """
+    return CredentialListResponse(
+        providers=[_credential_status(status) for status in list_provider_status()],
+        writable=_get_config(request).server.credential_writes_enabled(),
+    )
+
+
+@router.put("/keys/{provider}", response_model=CredentialStatus)
+def store_credential(
+    provider: str, body: StoreCredentialBody, request: Request
+) -> CredentialStatus:
+    """Store a provider API key. The key is write-only once submitted.
+
+    The key travels in the request body rather than the path or a query
+    parameter so that it stays out of access logs and browser history.
+    """
+    if not _get_config(request).server.credential_writes_enabled():
+        raise HTTPException(
+            status_code=403, detail={"code": "credential_writes_disabled"}
+        )
+    if not is_known_provider(provider):
+        raise HTTPException(status_code=404, detail={"code": "unknown_provider"})
+
+    value = body.value.strip()
+    if not value:
+        raise HTTPException(status_code=422, detail={"code": "empty_key"})
+    if len(value.encode("utf-8")) > MAX_KEY_BYTES:
+        raise HTTPException(status_code=413, detail={"code": "key_too_large"})
+
+    return _credential_status(store_provider_key(provider, value))
 
 
 @router.get("/roots")
