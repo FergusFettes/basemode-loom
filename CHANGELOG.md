@@ -11,6 +11,10 @@ under Unreleased.
 - Tag releases now build and publish through GitHub Actions with PyPI OIDC
   trusted publishing; manual workflow runs exercise the build without
   publishing.
+- Merging a version bump into `main` now tags and publishes that version
+  automatically. Releasing is triggered by the version in `pyproject.toml`
+  changing, so ordinary merges do nothing and pushing a `v*` tag by hand
+  still works as before.
 
 ## 0.3.0 - 2026-08-11
 
