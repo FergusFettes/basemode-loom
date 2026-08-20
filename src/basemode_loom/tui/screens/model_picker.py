@@ -8,12 +8,49 @@ from textual.containers import Vertical
 from textual.screen import ModalScreen
 from textual.widgets import Input, OptionList, Static
 
+_HELP = (
+    "Models  j/k=move  Space=toggle  Enter=apply  Esc=cancel\n"
+    "Filters (mix into the search box): provider:<name>  since:<10d|4w|6m|1y>"
+    "  verified  all"
+)
+
+FilterKey = tuple[str | None, str | None, bool, bool]
+
 
 def _fuzzy_match(query: str, text: str) -> bool:
     if not query:
         return True
     it = iter(text.lower())
     return all(c in it for c in query.lower())
+
+
+def _parse_query(query: str) -> tuple[str | None, str | None, bool, bool, str]:
+    """Split ``provider:``/``since:``/``verified``/``all`` tokens out of free text.
+
+    Returns ``(provider, since, verified_only, available_only, search_terms)``.
+    ``available_only`` defaults to True, matching the ``basemode models`` CLI;
+    the bare word ``all`` turns it off to include models without a stored key.
+    """
+    provider: str | None = None
+    since: str | None = None
+    verified_only = False
+    available_only = True
+    terms: list[str] = []
+    for token in query.split():
+        lowered = token.lower()
+        if lowered.startswith(("provider:", "p:")):
+            value = token.split(":", 1)[1]
+            provider = value or None
+        elif lowered.startswith("since:"):
+            value = token.split(":", 1)[1]
+            since = value or None
+        elif lowered == "verified":
+            verified_only = True
+        elif lowered == "all":
+            available_only = False
+        else:
+            terms.append(token)
+    return provider, since, verified_only, available_only, " ".join(terms)
 
 
 class ModelPickerScreen(ModalScreen[list[str] | None]):
@@ -34,61 +71,19 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
         self._all_models: list[str] = []
         self._visible_models: list[str] = []
         self._model_to_label: dict[str, str] = {}
+        self._filter_key: FilterKey | None = None
 
     def compose(self) -> ComposeResult:
         with Vertical():
-            yield Static("Models  j/k=move  Space=toggle  Enter=apply  Esc=cancel")
-            yield Input(placeholder="filter...", id="search")
+            yield Static(_HELP)
+            yield Input(
+                placeholder="filter, or provider:openai / since:6m / verified / all",
+                id="search",
+            )
             yield OptionList(id="model-list")
+            yield Static("", id="status")
 
     def on_mount(self) -> None:
-        models: list[str]
-        labels: list[str] = []
-        try:
-            from basemode.models import list_model_picker_entries
-
-            entries = list_model_picker_entries(available_only=True, verified_only=True)
-            if not entries:
-                entries = list_model_picker_entries(available_only=True)
-            models = [str(e["model"]) for e in entries]
-            for e in entries:
-                mark = e.get("reliability") or " "
-                labels.append(f"{mark} {e['model']}")
-        except Exception:
-            from basemode.models import list_models
-
-            models = list_models(available_only=True)
-            labels = models[:]
-
-        models = models or self._current_models
-        if not models:
-            models = ["gpt-4o-mini"]
-        if not labels:
-            labels = models[:]
-
-        # Ensure existing selections remain visible even if they're missing
-        # from the current provider catalog.
-        label_by_model = {
-            model: label for label, model in zip(labels, models, strict=False)
-        }
-        for model in self._current_models:
-            if model not in label_by_model:
-                label_by_model[model] = f"* {model}"
-                models.append(model)
-
-        # Keep currently selected models near the top in their given order.
-        chosen = [m for m in self._current_models if m in models]
-        if chosen:
-            ordered = chosen + [m for m in models if m not in set(chosen)]
-            models = ordered
-            labels = [label_by_model[m] for m in models]
-        else:
-            labels = [label_by_model[m] for m in models]
-
-        self._all_models = models
-        self._model_to_label = {
-            model: label for label, model in zip(labels, models, strict=False)
-        }
         self._update_list("")
         self.query_one(OptionList).focus()
 
@@ -100,8 +95,78 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
         label = self._model_to_label.get(model, model)
         return f"{marker} {label}"
 
+    def _load_entries(
+        self, provider: str | None, since: str | None, verified_only: bool, available_only: bool
+    ) -> tuple[list[str], list[str], str | None]:
+        try:
+            from basemode.models import list_model_picker_entries, parse_since
+
+            if since:
+                try:
+                    parse_since(since)
+                except ValueError as exc:
+                    return [], [], str(exc)
+
+            entries = list_model_picker_entries(
+                provider=provider,
+                available_only=available_only,
+                verified_only=verified_only,
+                since=since,
+            )
+            models = [str(e["model"]) for e in entries]
+            labels = [f"{e.get('reliability') or ' '} {e['model']}" for e in entries]
+            return models, labels, None
+        except Exception:
+            try:
+                from basemode.models import list_models
+
+                models = list_models(available_only=available_only)
+                return models, models[:], None
+            except Exception as exc:
+                return [], [], str(exc)
+
     def _update_list(self, query: str) -> None:
-        filtered = [m for m in self._all_models if _fuzzy_match(query, m)]
+        provider, since, verified_only, available_only, search_terms = _parse_query(query)
+        key: FilterKey = (provider, since, verified_only, available_only)
+
+        if key != self._filter_key:
+            models, labels, error = self._load_entries(
+                provider, since, verified_only, available_only
+            )
+            status = self.query_one("#status", Static)
+            if error:
+                status.update(f"[red]{error}[/red]")
+                return
+            self._filter_key = key
+
+            models = models or self._current_models
+            if not models:
+                models = ["gpt-4o-mini"]
+            if not labels:
+                labels = models[:]
+
+            # Ensure existing selections remain visible even if they're missing
+            # from the current filtered catalog.
+            label_by_model = {
+                model: label for label, model in zip(labels, models, strict=False)
+            }
+            for model in self._current_models:
+                if model not in label_by_model:
+                    label_by_model[model] = f"* {model}"
+                    models.append(model)
+
+            # Keep currently selected models near the top in their given order.
+            chosen = [m for m in self._current_models if m in models]
+            if chosen:
+                ordered = chosen + [m for m in models if m not in set(chosen)]
+                models = ordered
+
+            self._all_models = models
+            self._model_to_label = {
+                model: label_by_model[model] for model in models
+            }
+
+        filtered = [m for m in self._all_models if _fuzzy_match(search_terms, m)]
         opt = self.query_one(OptionList)
         old_visible = self._visible_models
         prev_idx = opt.highlighted
@@ -114,12 +179,20 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
         opt.clear_options()
         for m in filtered:
             opt.add_option(self._render_label(m))
-        if not filtered:
-            return
-        if prev_model in filtered:
-            opt.highlighted = filtered.index(prev_model)
-        else:
-            opt.highlighted = 0
+        if filtered:
+            opt.highlighted = filtered.index(prev_model) if prev_model in filtered else 0
+
+        status = self.query_one("#status", Static)
+        bits = [f"{len(filtered)} models"]
+        if provider:
+            bits.append(f"provider={provider}")
+        if since:
+            bits.append(f"since={since}")
+        if verified_only:
+            bits.append("verified")
+        if not available_only:
+            bits.append("all (incl. unavailable)")
+        status.update(" · ".join(bits))
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
         self.action_submit_selection()
