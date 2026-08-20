@@ -89,6 +89,7 @@ async def _stream_one(
         temperature=temperature,
         strategy=strategy,
         rewind=rewind,
+        strict_max_tokens=True,
     ):
         chunks.append(token)
         console.print(token, end="")
@@ -122,6 +123,7 @@ async def _stream_branches(
             temperature=temperature,
             strategy=strategy,
             rewind=rewind,
+            strict_max_tokens=True,
         ):
             buffers[idx].append(token)
             live.update(_branches_panel(prefix, buffers))

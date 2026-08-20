@@ -458,14 +458,39 @@ def get_node(node_id: str, store: StoreDep) -> dict:
 
 
 @router.get("/models")
-def list_models() -> dict:
+def list_models(
+    provider: Annotated[str | None, Query()] = None,
+    search: Annotated[str | None, Query()] = None,
+    available: Annotated[bool, Query()] = True,
+    verified: Annotated[bool, Query()] = False,
+    since: Annotated[str | None, Query()] = None,
+) -> dict:
     try:
         import basemode.models as bm  # type: ignore[import]
 
+        if since:
+            try:
+                bm.parse_since(since)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"code": "invalid_since", "message": str(exc)},
+                ) from exc
+
         picker = getattr(bm, "list_model_picker_entries", None)
         if callable(picker):
-            return {"models": picker(available_only=True)}
-        return {"models": bm.list_models(available_only=True)}
+            return {
+                "models": picker(
+                    provider=provider,
+                    search=search,
+                    available_only=available,
+                    verified_only=verified,
+                    since=since,
+                )
+            }
+        return {"models": bm.list_models(available_only=available)}
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(
             status_code=500,

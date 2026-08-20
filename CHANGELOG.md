@@ -6,6 +6,20 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.5.0 - 2026-08-20
+
+### Added
+
+- `GET /api/models` now accepts `provider`, `search`, `available`, `verified`,
+  and `since` query params, passed through to basemode's model picker.
+
+### Changed
+
+- Require Basemode 0.1.9 or newer.
+- Generation now always enforces basemode's `strict_max_tokens`, clipping
+  streamed output to the requested token budget instead of letting a
+  provider run past it.
+
 ## 0.4.1 - 2026-08-15
 
 ### Changed

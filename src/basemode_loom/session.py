@@ -409,6 +409,7 @@ class LoomSession:
                     temperature=plan.temperature,
                     context=context,
                     rewind=bool(self.rewind_split_tokens),
+                    strict_max_tokens=True,
                 ):
                     if self._cancelled.is_set():
                         break
