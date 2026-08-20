@@ -6,6 +6,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish a tagged release after its checks pass"
+        required: false
+        default: false
+        type: boolean
 
 concurrency:
   group: release-${{ github.ref }}
@@ -49,8 +55,19 @@ jobs:
             build=true
             publish=true
           elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
-            # Manual runs exercise the build without publishing.
+            # Manual runs exercise the build. Publishing is allowed only when
+            # the package version is already represented by a tag that is an
+            # ancestor of the checked-out commit, which makes recovery of a
+            # failed release safe after a workflow-only fix.
             build=true
+            if [ "${{ inputs.publish }}" = "true" ]; then
+              tag_commit="$(git rev-list -n 1 "v${version}" 2>/dev/null || true)"
+              if [ -z "${tag_commit}" ] || ! git merge-base --is-ancestor "${tag_commit}" "${GITHUB_SHA}"; then
+                echo "Manual publishing requires v${version} to be an ancestor of the current commit." >&2
+                exit 1
+              fi
+              publish=true
+            fi
           else
             # A push to the default branch releases only when the version
             # actually changed in that push, so ordinary merges do nothing.
@@ -159,8 +176,10 @@ jobs:
           git push origin "v${VERSION}"
 
       - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.UV_PUBLISH_TOKEN }}
         run: >-
-          uv publish --trusted-publishing always
+          uv publish
           --check-url https://pypi.org/simple
           dist/*
 
