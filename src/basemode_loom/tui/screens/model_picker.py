@@ -96,7 +96,11 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
         return f"{marker} {label}"
 
     def _load_entries(
-        self, provider: str | None, since: str | None, verified_only: bool, available_only: bool
+        self,
+        provider: str | None,
+        since: str | None,
+        verified_only: bool,
+        available_only: bool,
     ) -> tuple[list[str], list[str], str | None]:
         try:
             from basemode.models import list_model_picker_entries, parse_since
@@ -126,7 +130,9 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
                 return [], [], str(exc)
 
     def _update_list(self, query: str) -> None:
-        provider, since, verified_only, available_only, search_terms = _parse_query(query)
+        provider, since, verified_only, available_only, search_terms = _parse_query(
+            query
+        )
         key: FilterKey = (provider, since, verified_only, available_only)
 
         if key != self._filter_key:
@@ -162,9 +168,7 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
                 models = ordered
 
             self._all_models = models
-            self._model_to_label = {
-                model: label_by_model[model] for model in models
-            }
+            self._model_to_label = {model: label_by_model[model] for model in models}
 
         filtered = [m for m in self._all_models if _fuzzy_match(search_terms, m)]
         opt = self.query_one(OptionList)
@@ -180,7 +184,9 @@ class ModelPickerScreen(ModalScreen[list[str] | None]):
         for m in filtered:
             opt.add_option(self._render_label(m))
         if filtered:
-            opt.highlighted = filtered.index(prev_model) if prev_model in filtered else 0
+            opt.highlighted = (
+                filtered.index(prev_model) if prev_model in filtered else 0
+            )
 
         status = self.query_one("#status", Static)
         bits = [f"{len(filtered)} models"]

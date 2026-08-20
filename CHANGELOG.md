@@ -6,6 +6,13 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.5.1 - 2026-08-21
+
+### Changed
+
+- Require Basemode 0.1.11 or newer, picking up DeepSeek as a first-class
+  provider and live provider data patched into the model listing.
+
 ## 0.5.0 - 2026-08-20
 
 ### Added
