@@ -290,7 +290,7 @@ class LoomSession:
         return self.get_state()
 
     def checkout(self, node_id: str) -> SessionState:
-        """Move directly to a node and make its complete ancestry checked out."""
+        """Select a node from its parent and make its ancestry checked out."""
         node = self._store.get(node_id)
         if node is None:
             raise KeyError(f"unknown node: {node_id}")
@@ -303,10 +303,13 @@ class LoomSession:
             self._store.set_checked_out_child(parent.id, child.id)
             self._child_path[parent.id] = siblings.index(child)
 
-        self._store.set_active_node(node.id)
-        self._current_id = node.id
-        self._child_path.update(self._load_child_path(node.id))
-        self._selected_idx = self._child_path.get(node.id, 0)
+        # The reader presents a current node plus one highlighted child. Keep
+        # the clicked node in that child position instead of descending into it.
+        current = lineage[-2] if len(lineage) > 1 else node
+        self._store.set_active_node(current.id)
+        self._current_id = current.id
+        self._child_path.update(self._load_child_path(current.id))
+        self._selected_idx = self._child_path.get(current.id, 0)
         return self.get_state()
 
     def select_sibling(self, delta: int) -> SessionState:

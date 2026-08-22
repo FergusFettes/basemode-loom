@@ -161,7 +161,8 @@ def test_checkout_moves_directly_and_repairs_the_checked_out_lineage(branched_st
 
     state = session.checkout(c[0].id)
 
-    assert state.current_node_id == c[0].id
+    assert state.current_node_id == ab[0].id
+    assert state.children[state.selected_child_idx].id == c[0].id
     assert store.get_checked_out_child_id(ab[0].parent_id) == ab[0].id
     assert store.get_checked_out_child_id(ab[0].id) == c[0].id
 
