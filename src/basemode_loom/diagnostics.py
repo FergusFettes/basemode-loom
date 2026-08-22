@@ -4,15 +4,22 @@ import asyncio
 import uuid
 from dataclasses import dataclass
 
+from basemode.exceptions import EmptyCompletionError
+
 
 @dataclass(frozen=True)
 class ProviderDiagnostic:
     incident_id: str
     category: str
     status: int | None = None
+    finish_reason: str | None = None
 
 
 def provider_diagnostic(error: BaseException) -> ProviderDiagnostic:
+    if isinstance(error, EmptyCompletionError):
+        return ProviderDiagnostic(
+            uuid.uuid4().hex, "empty_response", None, error.finish_reason
+        )
     status = _status_code(error)
     name = type(error).__name__.lower()
     if status in {401, 403} or "auth" in name or "permission" in name:

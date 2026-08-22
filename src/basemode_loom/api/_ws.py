@@ -202,6 +202,8 @@ async def session_ws(
                             response["category"] = event.category
                         if event.status is not None:
                             response["status"] = event.status
+                        if event.finish_reason is not None:
+                            response["finish_reason"] = event.finish_reason
                         await websocket.send_json(response)
                     elif isinstance(event, GenerationCancelled):
                         await websocket.send_json({"type": "generation_cancelled"})

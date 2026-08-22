@@ -60,6 +60,7 @@ class GenerationError:
     incident_id: str | None = None
     category: str | None = None
     status: int | None = None
+    finish_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -441,6 +442,7 @@ class LoomSession:
                     f"model={plan.model} model_idx={model_idx} "
                     f"branch_idx={branch_idx} slot_idx={slot_idx} "
                     f"category={diagnostic.category} status={diagnostic.status} "
+                    f"finish_reason={diagnostic.finish_reason} "
                     f"incident_id={diagnostic.incident_id}"
                 )
                 await queue.put(("error", slot_idx, model_idx, branch_idx, diagnostic))
@@ -533,6 +535,7 @@ class LoomSession:
                 incident_id=first.incident_id,
                 category=first.category,
                 status=first.status,
+                finish_reason=first.finish_reason,
             )
 
     def _save_completions(

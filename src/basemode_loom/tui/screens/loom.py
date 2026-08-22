@@ -691,10 +691,12 @@ class LoomScreen(Screen):
                         incident_id=incident_id,
                         category=category,
                         status=status,
+                        finish_reason=finish_reason,
                     ):
                         log.error(
                             "generation worker error "
                             f"category={category or 'internal'} status={status} "
+                            f"finish_reason={finish_reason} "
                             f"incident_id={incident_id or 'none'}"
                         )
                         self.notify(str(exc), severity="error")

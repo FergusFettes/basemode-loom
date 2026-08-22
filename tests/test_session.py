@@ -688,6 +688,35 @@ async def test_generate_whitespace_only_stream_is_reported_as_error_not_saved(
 
 
 @pytest.mark.asyncio
+async def test_generate_empty_completion_error_reports_finish_reason(
+    store, monkeypatch
+):
+    from basemode.exceptions import EmptyCompletionError
+
+    async def raising_continue(prefix, model, **kwargs):
+        raise EmptyCompletionError(
+            model=model, strategy="system", finish_reason="content_filter"
+        )
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", raising_continue)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    events = []
+    async for event in session.generate():
+        events.append(event)
+
+    error_events = [e for e in events if isinstance(e, GenerationError)]
+    assert len(error_events) == 1
+    assert error_events[0].category == "empty_response"
+    assert error_events[0].finish_reason == "content_filter"
+
+
+@pytest.mark.asyncio
 async def test_generate_empty_branch_alongside_successful_branch(store, monkeypatch):
     calls = 0
 
