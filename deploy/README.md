@@ -17,6 +17,13 @@ These files are deployment templates; review paths before installing them.
    automatic security-update facility (for Debian/Ubuntu, `unattended-upgrades`).
 6. Configure provider-side spending limits and alerts independently of Grove.
 
+The included nginx template allows an API request to run for up to 15 minutes.
+This accommodates synchronous embedding-index builds (`POST /api/embeddings`)
+without making WebSocket connections equally long-lived: WebSockets retain a
+180-second idle read timeout. Increase the API timeout only when the expected
+indexing workload requires it; clients and any outer proxy must allow at least
+the same duration.
+
 Example environment file (values shown are not secrets):
 
 ```sh

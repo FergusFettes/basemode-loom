@@ -103,7 +103,9 @@ optional `dim` field controls the hash embedder dimension and defaults to 256.
 
 The server must be installed with `basemode-loom[embed]` for hash indexes or
 `basemode-loom[embed-mlx]` for MLX indexes. Index builds can take time and the
-request remains open until the operation completes.
+request remains open until the operation completes. The bundled nginx template
+allows API requests to run for 15 minutes; configure any other reverse proxy
+and client timeout accordingly.
 
 ### Get config
 
