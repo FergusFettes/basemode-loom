@@ -20,7 +20,11 @@ from basemode.healing import normalize_completion_segment
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage
 
-from .diagnostics import ProviderDiagnostic, provider_diagnostic
+from .diagnostics import (
+    ProviderDiagnostic,
+    empty_response_diagnostic,
+    provider_diagnostic,
+)
 from .logging_utils import get_logger
 from .model_resolver import resolve_model_id
 from .naming import generate_name, should_name
@@ -473,7 +477,18 @@ class LoomSession:
         for slot_idx, plan_entry in enumerate(branch_plan):
             if slot_idx in branch_errors:
                 continue
-            successful.append((plan_entry, "".join(buffers[slot_idx])))
+            raw = "".join(buffers[slot_idx])
+            if not normalize_completion_segment(prefix, raw).strip():
+                _model_idx, _branch_idx, plan = plan_entry
+                log.warning(
+                    "generation branch produced empty completion "
+                    f"source_node={source_node_id} model={plan.model} "
+                    f"model_idx={_model_idx} branch_idx={_branch_idx} "
+                    f"slot_idx={slot_idx}"
+                )
+                branch_errors[slot_idx] = empty_response_diagnostic()
+                continue
+            successful.append((plan_entry, raw))
 
         new_nodes: list[Node] = []
         if successful:

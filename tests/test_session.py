@@ -631,6 +631,97 @@ async def test_generate_error_propagated(store, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_generate_empty_stream_is_reported_as_error_not_saved(store, monkeypatch):
+    async def empty_continue(prefix, model, **kwargs):
+        return
+        yield  # pragma: no cover - makes this an async generator
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", empty_continue)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    events = []
+    async for event in session.generate():
+        events.append(event)
+
+    assert not any(isinstance(e, GenerationComplete) for e in events)
+    error_events = [e for e in events if isinstance(e, GenerationError)]
+    assert len(error_events) == 1
+    assert error_events[0].category == "empty_response"
+    assert store.children(ch[0].id) == []
+
+
+@pytest.mark.asyncio
+async def test_generate_whitespace_only_stream_is_reported_as_error_not_saved(
+    store, monkeypatch
+):
+    async def whitespace_continue(prefix, model, **kwargs):
+        yield "   "
+        yield "\n"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", whitespace_continue)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    events = []
+    async for event in session.generate():
+        events.append(event)
+
+    assert not any(isinstance(e, GenerationComplete) for e in events)
+    error_events = [e for e in events if isinstance(e, GenerationError)]
+    assert len(error_events) == 1
+    assert error_events[0].category == "empty_response"
+    assert store.children(ch[0].id) == []
+
+
+@pytest.mark.asyncio
+async def test_generate_empty_branch_alongside_successful_branch(store, monkeypatch):
+    calls = 0
+
+    async def mixed_continue(prefix, model, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            yield "ok"
+            return
+        return
+        yield  # pragma: no cover
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", mixed_continue)
+    monkeypatch.setattr(
+        "basemode_loom.session.normalize_completion_segment",
+        lambda _prefix, completion: completion,
+    )
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 2
+
+    events = []
+    async for event in session.generate():
+        events.append(event)
+
+    complete_events = [e for e in events if isinstance(e, GenerationComplete)]
+    error_events = [e for e in events if isinstance(e, GenerationError)]
+    assert len(complete_events) == 1
+    assert len(complete_events[0].new_nodes) == 1
+    assert complete_events[0].new_nodes[0].text == "ok"
+    assert len(error_events) == 1
+    assert error_events[0].category == "empty_response"
+
+    new_children = store.children(ch[0].id)
+    assert len(new_children) == 1
+    assert new_children[0].text == "ok"
+
+
+@pytest.mark.asyncio
 async def test_generate_partial_failure_still_saves_successful_branches(
     store, monkeypatch
 ):

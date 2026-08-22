@@ -32,6 +32,17 @@ def provider_diagnostic(error: BaseException) -> ProviderDiagnostic:
     return ProviderDiagnostic(uuid.uuid4().hex, category, status)
 
 
+def empty_response_diagnostic() -> ProviderDiagnostic:
+    """A provider stream that ended cleanly but produced no usable text.
+
+    Distinct from `provider_diagnostic`, which classifies a raised exception:
+    this covers a branch the provider reports as successful yet returns
+    nothing (or only content that normalizes away to nothing), which would
+    otherwise persist a silent empty node.
+    """
+    return ProviderDiagnostic(uuid.uuid4().hex, "empty_response", None)
+
+
 def _status_code(error: BaseException) -> int | None:
     candidates = (getattr(error, "status_code", None), getattr(error, "status", None))
     response = getattr(error, "response", None)
