@@ -6,6 +6,19 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.5.3 - 2026-08-22
+
+### Added
+
+- An opt-in live-provider integration test for the loom generation lifecycle.
+
+### Changed
+
+- Centralize model-plan validation and persistence normalization.
+- Isolate SQLite schema creation and migrations from the store repository.
+- Make embedding API requests deployment-safe for longer-running index builds.
+- Tighten CI dependency locking, caching, permissions, and job timeouts.
+
 ## 0.5.2 - 2026-08-22
 
 ### Added
