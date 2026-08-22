@@ -1,114 +1,126 @@
 # Agent Quickstart
 
-This page is written for LLM agents (like Claude Code) dropped into this repo. It gives you the mental model and a reading map so you can orient fast.
+Use this page when changing the `basemode-loom` repository. It is about
+working on the project; [[Quickstart]] is the guide for using the installed
+CLI.
 
-## What this repo is
+## First five minutes
 
-**basemode-loom** is a persistent branching exploration tool for LLM text generation. Users point it at a text prompt, generate multiple continuations in parallel, navigate the resulting tree, and keep exploring from any node. Everything is stored in a local SQLite database.
-
-It has three interfaces over a shared core:
-- A **TUI** (Textual) for interactive exploration
-- A **CLI** (Typer) for scripting and quick generation
-- A **web server** (FastAPI + WebSocket) for headless use
-
-## Dependency: basemode
-
-basemode-loom depends on `basemode` (sibling package at `../basemode`) for all actual LLM calls. basemode handles strategy detection, streaming, and token boundary healing. If you're debugging generation behavior, start there. See [[basemode Overview]].
-
-## Repo layout
-
-```
-src/basemode_loom/
-├── store.py          ← SQLite layer; Node dataclass; all reads/writes
-├── session.py        ← LoomSession; navigation, generation, state machine
-├── display.py        ← UI-agnostic rendering; DisplayLine output
-├── cli.py            ← Typer CLI (~1000 lines; all commands here)
-├── naming.py         ← Auto-names trees via cheap LLM call
-├── loom_formats.py   ← Legacy format parser for import
-├── stats.py          ← Tree analysis and quality metrics
-├── api/              ← FastAPI app, REST endpoints, WebSocket handler
-└── tui/              ← Textual app, screens, widgets
+```bash
+uv sync --all-groups
+make lint
+make test
+make docs
 ```
 
-## The three-layer rule
+Run focused tests while iterating, then run `make release-check` before
+handing off a release-facing change. It runs linting, the test suite, a strict
+documentation build, and package builds. Integration tests make live provider
+requests and are intentionally opt-in:
 
-UI layers (TUI, web, CLI) **never** call `GenerationStore` directly. All interaction goes through `LoomSession`. This is an invariant enforced by convention — if you're adding a new UI feature, keep it.
+```bash
+make test-integration
+```
 
+Never print or commit provider credentials.
+
+## Repository map
+
+| Area | Start here | Use it when |
+|---|---|---|
+| Persistence and tree model | `src/basemode_loom/store.py` | Changing SQLite schema, nodes, trees, or tree queries |
+| Session and generation | `src/basemode_loom/session.py` | Changing navigation, generation lifecycle, or session state |
+| Command-line interface | `src/basemode_loom/cli.py` | Adding or adjusting CLI commands |
+| TUI | `src/basemode_loom/tui/` | Changing interactive exploration screens and widgets |
+| REST and WebSocket API | `src/basemode_loom/api/` | Adding endpoints or changing server behaviour |
+| Rendering | `src/basemode_loom/display.py` | Changing UI-agnostic text layout |
+| Configuration and credentials | `config.py`, `credentials.py`, `keymap.py` | Changing defaults, server limits, keys, or bindings |
+| Retrieval | `src/basemode_loom/retrieval/` | Changing semantic-index construction or search |
+| Tree analysis | `stats.py`, `graph_stats.py` | Changing metrics and statistics views |
+| Legacy import/export | `loom_formats.py`, `cli.py` | Supporting legacy loom data or export formats |
+| Tests | `tests/` | Adding regressions beside the affected feature |
+
+For public behaviour and examples, see [[CLI Reference]], [[TUI Guide]],
+[[Python API]], and [[Web Server]]. Keep them in sync with code changes.
+
+## Architecture
+
+`GenerationStore` owns SQLite persistence. `LoomSession` is the stateful
+navigation and generation layer used by the interactive loom screen. The CLI
+and API also use the store directly for their query, import/export, and service
+workflows, so do not assume all store access must flow through a session.
+
+```text
+TUI loom screen ──> LoomSession ──> GenerationStore
+CLI commands ────────────────────> GenerationStore
+REST / WebSocket API ────────────> GenerationStore
 ```
-UI (tui/, api/, cli.py)
-    ↓  reads SessionState, calls methods
-LoomSession (session.py)
-    ↓  reads/writes nodes
-GenerationStore (store.py)
-```
+
+`basemode-loom` delegates model continuation to the sibling `basemode` project
+when developing both checkouts. `basemode` owns provider strategy detection,
+streaming, and token-boundary healing; loom owns persistent trees, navigation,
+and its interfaces. Start in `../basemode` when debugging a raw continuation
+or model compatibility issue.
 
 ## Key invariants
 
-- **Nodes are immutable.** `Node` is a frozen dataclass. Only `metadata` can be updated via `store.update_metadata()`.
-- **Text is stored per-segment.** Each node stores only its own continuation text, not the full prefix. `store.full_text(id)` reconstructs by walking lineage.
-- **State is explicit.** The `state` table in SQLite tracks `active_node_id` and `checked_out:{parent_id}` — which child was selected at each parent. These persist across restarts.
-- **Generation events are a union type.** `generate()` yields `TokenReceived | GenerationComplete | GenerationError | GenerationCancelled` — always match all cases.
-
-## Where to read next, by task
-
-| Task | Read first | Then |
-|------|-----------|------|
-| Add a new CLI command | `cli.py` | `session.py` for available methods |
-| Add a new TUI feature | `tui/screens/loom.py` | `tui/widgets/loom_view.py`, `session.py` |
-| Change how text is displayed | `display.py` | `tui/widgets/loom_view.py` to see how DisplayLine is consumed |
-| Change persistence schema | `store.py` | Check `session.py` for any queries that'll need updating |
-| Add a new generation event type | `session.py` (GenerationEvent union) | `tui/widgets/stream_view.py`, `api/_ws.py` for consumers |
-| Add a REST endpoint | `api/_rest.py` | `api/_serialize.py` for Pydantic models |
-| Debug import of legacy files | `loom_formats.py` | `cli.py` (`view` on `.json` export) and `api/_rest.py` (`POST /api/import`) |
-| Understand stats/metrics | `stats.py` | `tui/screens/stats.py` for display |
-| Add auto-naming behavior | `naming.py` | Called from `session.py` after generation |
+- `Node` is a frozen dataclass. Use store methods to make supported metadata or
+  context changes; node text itself is never mutated in place.
+- Nodes store one text segment; `store.full_text(node_id)` reconstructs the
+  complete prefix from its lineage.
+- The SQLite state table persists the active node and checked-out child per
+  parent, so navigation survives restarts.
+- `LoomSession.generate()` yields every member of `GenerationEvent`:
+  `TokenReceived`, `GenerationComplete`, `GenerationError`, and
+  `GenerationCancelled`. Consumers must handle all four.
+- Inline and full-text edits create forks or a new edited lineage; they do not
+  mutate an existing node's text.
 
 ## Common patterns
 
-**Reading the current state:**
+**Read the active session state:**
+
 ```python
 state = session.get_state()
-state.current_node      # Node
-state.full_text         # str
-state.children          # list[Node]
+state.current_node
+state.full_text
+state.children
 state.selected_child_idx
 ```
 
-**Iterating over generation events:**
+**Consume generation events:**
+
 ```python
 async for event in session.generate():
     match event:
         case TokenReceived(model_idx=mi, branch_idx=bi, slot_idx=si, token=t): ...
         case GenerationComplete(new_nodes=nodes): ...
-        case GenerationError(error=e): ...
+        case GenerationError(error=error): ...
         case GenerationCancelled(): ...
 ```
 
-**Querying the store directly** (only from session.py or tests):
+**Query a tree:**
+
 ```python
 store.full_text(node_id)
-store.lineage(node_id)   # root-first list
+store.lineage(node_id)       # root-first list
 store.children(node_id)
-store.tree(root_id)      # all nodes ordered by creation time
+store.tree_for_node(node_id) # tree containing this node
 ```
 
-**Metadata conventions:**
-Root nodes carry tree-level config in `metadata`: `config`, `model`, `max_tokens`, `temperature`, `n_branches`, `context`, `show_model_names`, `model_plan`, `name`, `last_node_id`. Generated child nodes also carry usage metadata and model-plan branch indices.
+## Change checklist
 
-## Tests
+1. Make the smallest coherent change and add or adjust a regression test.
+2. Update the relevant user-facing docs and public API reference.
+3. Run focused tests, then the appropriate `make` checks above.
+4. Run `make release-check` before release-facing handoff.
+5. Commit small logical units. Update `uv.lock` with `uv lock` whenever
+   dependency constraints change.
 
-```bash
-uv run pytest tests          # all tests with coverage
-uv run pytest -m integration # integration tests only
-```
+## Further reading
 
-Tests live in `tests/`. Store tests use a temp SQLite file. TUI tests are limited — the Textual framework makes unit testing widgets awkward, so display logic in `display.py` is tested directly instead.
-
-## Docs
-
-```bash
-make docs        # build site/ 
-make docs-serve  # live reload at localhost:8001
-```
-
-Docs source is in `docs/` as Obsidian-compatible markdown with wikilink syntax. File names match link targets (unique across the vault).
+- [[Installation]] — source setup and optional retrieval dependencies
+- [[Configuration]] — TOML settings and environment overrides
+- [[TUI Guide]] — interactive behaviour and keybindings
+- [[Web Server]] — REST, WebSocket, and production-server behaviour
+- [[basemode Overview]] — the continuation layer loom builds upon
