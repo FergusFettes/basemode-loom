@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api")
 
 
 def _get_store(request: Request) -> GenerationStore:
-    return request.app.state.store
+    return request.app.state.store_resolver(request.scope)
 
 
 def _get_config(request: Request) -> Config:

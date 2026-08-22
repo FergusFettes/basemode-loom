@@ -39,6 +39,35 @@ app = create_app(store)
 uvicorn.run(app, host="127.0.0.1", port=8000)
 ```
 
+### Embedding with a private store per user
+
+The standalone CLI server loads one SQLite database at startup. An embedding
+application can instead pass `store_resolver` to `create_app`. It receives
+the trusted ASGI scope for each HTTP request and WebSocket connection and
+returns the `GenerationStore` that connection may access:
+
+```python
+from starlette.types import Scope
+
+from basemode_loom import GenerationStore
+from basemode_loom.api import StoreResolver, create_app
+
+default_store = GenerationStore("/var/lib/grove/default.sqlite")
+
+def resolve_store(scope: Scope) -> GenerationStore:
+    # Authentication middleware owned by the host application sets this.
+    store_key = scope["state"]["grove_store_key"]
+    return stores_by_key[store_key]
+
+resolver: StoreResolver = resolve_store
+app = create_app(default_store, store_resolver=resolver)
+```
+
+Use an authenticated application to derive the store key; never accept a
+database path or store key from the browser. The supplied `default_store`
+continues to be used when no resolver is passed, including by
+`basemode-loom serve --db ...` for local frontend development.
+
 ## REST API
 
 In development, FastAPI publishes the API contract automatically:

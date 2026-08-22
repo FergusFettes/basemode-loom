@@ -17,6 +17,7 @@ from ._security import (
     configured_origins,
     validate_server_config,
 )
+from ._stores import StoreResolver, fixed_store
 from ._ws import session_ws
 
 
@@ -27,7 +28,19 @@ def _package_version() -> str:
         return "0.0.0"
 
 
-def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastAPI:
+def create_app(
+    store: GenerationStore,
+    config: Config = DEFAULT_CONFIG,
+    *,
+    store_resolver: StoreResolver | None = None,
+) -> FastAPI:
+    """Create the Loom API application.
+
+    ``store`` remains the default for the standalone server. An embedding
+    application may provide ``store_resolver`` to choose a store for each HTTP
+    request or WebSocket connection from trusted ASGI scope state. The
+    resolver must never select a path from untrusted client input.
+    """
     configure_logging("api")
     validate_server_config(config.server)
     allowed_origins = configured_origins(config.server)
@@ -40,6 +53,7 @@ def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastA
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.store = store
+        app.state.store_resolver = store_resolver or fixed_store(store)
         app.state.config = config
         app.state.allowed_origins = allowed_origins
         app.state.generation_gate = GenerationGate(
@@ -70,9 +84,10 @@ def create_app(store: GenerationStore, config: Config = DEFAULT_CONFIG) -> FastA
 
     @app.websocket("/ws/session")
     async def ws_session(websocket: WebSocket) -> None:
+        store = websocket.app.state.store_resolver(websocket.scope)
         await session_ws(
             websocket,
-            websocket.app.state.store,
+            store,
             websocket.app.state.config.server,
             websocket.app.state.allowed_origins,
             websocket.app.state.generation_gate,
