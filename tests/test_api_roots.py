@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
+from basemode_loom.api import _rest
 from basemode_loom.api.app import create_app
+from basemode_loom.images import ImageGenerationError
 from basemode_loom.store import GenerationStore
 
 
@@ -71,3 +73,46 @@ def test_node_shape_endpoint_404_for_unknown_node(tmp_path) -> None:
         response = client.get("/api/nodes/missing/shape")
 
     assert response.status_code == 404
+
+
+def test_generate_root_image_returns_base64_and_prompt(tmp_path, monkeypatch) -> None:
+    store = GenerationStore(tmp_path / "roots.sqlite")
+    root = store.create_root("a story about a cat")
+
+    monkeypatch.setattr(
+        _rest, "generate_branch_image", lambda prompt: ("ZmFrZQ==", "image/png")
+    )
+
+    with TestClient(create_app(store)) as client:
+        response = client.post(f"/api/roots/{root.id}/image")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["image_base64"] == "ZmFrZQ=="
+    assert body["mime_type"] == "image/png"
+    assert body["prompt"] == "a story about a cat"
+
+
+def test_generate_root_image_404_for_unknown_root(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "roots.sqlite")
+
+    with TestClient(create_app(store)) as client:
+        response = client.post("/api/roots/missing/image")
+
+    assert response.status_code == 404
+
+
+def test_generate_root_image_400_on_generation_failure(tmp_path, monkeypatch) -> None:
+    store = GenerationStore(tmp_path / "roots.sqlite")
+    root = store.create_root("a story about a cat")
+
+    def failing(prompt: str) -> tuple[str, str]:
+        raise ImageGenerationError("no OpenAI API key configured")
+
+    monkeypatch.setattr(_rest, "generate_branch_image", failing)
+
+    with TestClient(create_app(store)) as client:
+        response = client.post(f"/api/roots/{root.id}/image")
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "image_generation_failed"

@@ -16,6 +16,7 @@ from ..credentials import (
     store_provider_key,
 )
 from ..graph_stats import analyze_subtree
+from ..images import MAX_PROMPT_CHARS, ImageGenerationError, generate_branch_image
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -467,6 +468,32 @@ def export_tree(root_id: str, store: StoreDep) -> dict:
     if store.get(root_id) is None:
         raise HTTPException(status_code=404, detail="root not found")
     return {"version": 1, "nodes": [node_to_dict(n) for n in store.tree(root_id)]}
+
+
+class GenerateImageResponse(BaseModel):
+    image_base64: str
+    mime_type: str
+    prompt: str
+
+
+@router.post("/roots/{root_id}/image", response_model=GenerateImageResponse)
+def generate_root_image(root_id: str, store: StoreDep) -> GenerateImageResponse:
+    if store.get(root_id) is None:
+        raise HTTPException(status_code=404, detail="root not found")
+    tree = store.tree_for_node(root_id)
+    node_id = tree.current_node_id or root_id
+    full_text = store.full_text(node_id)
+    prompt = full_text[-MAX_PROMPT_CHARS:]
+    try:
+        image_base64, mime_type = generate_branch_image(prompt)
+    except ImageGenerationError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "image_generation_failed", "message": str(exc)},
+        ) from exc
+    return GenerateImageResponse(
+        image_base64=image_base64, mime_type=mime_type, prompt=prompt
+    )
 
 
 @router.get("/nodes/{node_id}")
