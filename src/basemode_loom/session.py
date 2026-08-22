@@ -12,6 +12,7 @@ import difflib
 import random
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any, Literal
 
 from basemode.continue_ import continue_text
@@ -297,7 +298,7 @@ class LoomSession:
             raise ValueError("node is outside this session's tree")
 
         lineage = self._store.lineage(node.id)
-        for parent, child in zip(lineage, lineage[1:]):
+        for parent, child in pairwise(lineage):
             siblings = self._store.children(parent.id)
             self._store.set_checked_out_child(parent.id, child.id)
             self._child_path[parent.id] = siblings.index(child)
