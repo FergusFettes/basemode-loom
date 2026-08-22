@@ -155,6 +155,17 @@ def test_navigate_parent_restores_sibling_index(branched_store):
     assert state.selected_child_idx == 1  # should remember B was selected
 
 
+def test_checkout_moves_directly_and_repairs_the_checked_out_lineage(branched_store):
+    store, ab, c = branched_store
+    session = LoomSession(store, c[0].id)
+
+    state = session.checkout(c[0].id)
+
+    assert state.current_node_id == c[0].id
+    assert store.get_checked_out_child_id(ab[0].parent_id) == ab[0].id
+    assert store.get_checked_out_child_id(ab[0].id) == c[0].id
+
+
 def test_select_sibling_increments(branched_store):
     store, ab, _ = branched_store
     session = LoomSession(store, ab[0].id)

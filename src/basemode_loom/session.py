@@ -288,6 +288,26 @@ class LoomSession:
         self._current_id = parent_id
         return self.get_state()
 
+    def checkout(self, node_id: str) -> SessionState:
+        """Move directly to a node and make its complete ancestry checked out."""
+        node = self._store.get(node_id)
+        if node is None:
+            raise KeyError(f"unknown node: {node_id}")
+        if self._store.root(node.id).id != self._store.root(self._current_id).id:
+            raise ValueError("node is outside this session's tree")
+
+        lineage = self._store.lineage(node.id)
+        for parent, child in zip(lineage, lineage[1:]):
+            siblings = self._store.children(parent.id)
+            self._store.set_checked_out_child(parent.id, child.id)
+            self._child_path[parent.id] = siblings.index(child)
+
+        self._store.set_active_node(node.id)
+        self._current_id = node.id
+        self._child_path.update(self._load_child_path(node.id))
+        self._selected_idx = self._child_path.get(node.id, 0)
+        return self.get_state()
+
     def select_sibling(self, delta: int) -> SessionState:
         children = self._store.children(self._current_id)
         if not children:

@@ -282,6 +282,20 @@ async def session_ws(
                     {"type": "state", "state": state_to_dict(state)}
                 )
 
+            elif msg_type == "checkout":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("checkout requires a node_id")
+                    continue
+                try:
+                    state = session.checkout(node_id)
+                except (KeyError, ValueError) as exc:
+                    await send_error(str(exc))
+                    continue
+                await websocket.send_json(
+                    {"type": "state", "state": state_to_dict(state)}
+                )
+
             elif msg_type == "set_params":
                 patch, field_errors = _validate_set_params(data)
                 if field_errors:
