@@ -35,6 +35,7 @@ def tree_to_dict(tree: Tree) -> dict[str, Any]:
         "created_at": tree.created_at,
         "updated_at": tree.updated_at,
         "metadata": tree.metadata,
+        "archived": tree.archived,
     }
 
 

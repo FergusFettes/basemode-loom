@@ -270,6 +270,27 @@ def test_delete_tree_removes_nodes_and_related_state(tmp_path) -> None:
     assert store.get_checked_out_child_id(root.id) is None
 
 
+def test_set_tree_archived_hides_root_by_default(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    root = store.create_root("root")
+    other_root = store.create_root("other")
+
+    tree = store.get_tree(root.tree_id)
+    assert tree is not None
+    assert tree.archived is False
+
+    updated = store.set_tree_archived(root.tree_id, True)
+    assert updated.archived is True
+
+    assert store.roots() == [other_root]
+    assert store.roots(archived=True) == [root]
+    assert store.roots(archived=None) == [other_root, root]
+
+    restored = store.set_tree_archived(root.tree_id, False)
+    assert restored.archived is False
+    assert store.roots() == [other_root, root]
+
+
 def test_delete_subtree_removes_branch_and_related_state(tmp_path) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
     root = store.create_root("root")

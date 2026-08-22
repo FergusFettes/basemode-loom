@@ -194,6 +194,7 @@ class Tree:
     created_at: str
     updated_at: str
     metadata: dict[str, Any]
+    archived: bool
 
 
 class AmbiguousNodeReference(ValueError):
@@ -242,10 +243,12 @@ class GenerationStore:
                     model_plan_json TEXT NOT NULL DEFAULT '[]',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL,
-                    metadata_json TEXT NOT NULL DEFAULT '{}'
+                    metadata_json TEXT NOT NULL DEFAULT '{}',
+                    archived INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            self._ensure_column(conn, "trees", "archived", "INTEGER NOT NULL DEFAULT 0")
             conn.execute(
                 """
                 CREATE TABLE IF NOT EXISTS nodes (
@@ -739,6 +742,19 @@ class GenerationStore:
         assert updated is not None
         return updated
 
+    def set_tree_archived(self, tree_id: str, archived: bool) -> Tree:
+        tree = self.get_tree(tree_id)
+        if tree is None:
+            raise KeyError(f"unknown tree: {tree_id}")
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                "UPDATE trees SET archived = ?, updated_at = ? WHERE id = ?",
+                (int(archived), _now(), tree_id),
+            )
+        updated = self.get_tree(tree_id)
+        assert updated is not None
+        return updated
+
     def resolve_node_id(self, reference: str) -> str | None:
         """Resolve a full id or unique id substring to a canonical node id."""
         if not reference:
@@ -1097,15 +1113,31 @@ class GenerationStore:
                     out[str(row["id"])] = self._node(row)
         return out
 
-    def roots(self) -> list[Node]:
+    def roots(self, *, archived: bool | None = False) -> list[Node]:
+        """List root nodes. `archived=False` (default) hides archived trees,
+
+        `True` returns only archived trees, `None` returns both.
+        """
         with closing(self.connect()) as conn:
-            rows = conn.execute(
-                """
-                SELECT * FROM nodes
-                WHERE parent_id IS NULL AND kind != 'context'
-                ORDER BY created_at DESC, id DESC
-                """
-            ).fetchall()
+            if archived is None:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM nodes
+                    WHERE parent_id IS NULL AND kind != 'context'
+                    ORDER BY created_at DESC, id DESC
+                    """
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT nodes.* FROM nodes
+                    JOIN trees ON trees.id = nodes.tree_id
+                    WHERE nodes.parent_id IS NULL AND nodes.kind != 'context'
+                      AND trees.archived = ?
+                    ORDER BY nodes.created_at DESC, nodes.id DESC
+                    """,
+                    (int(archived),),
+                ).fetchall()
         return [self._node(row) for row in rows]
 
     def delete_tree(self, root_id: str) -> int:
@@ -1355,4 +1387,5 @@ class GenerationStore:
             created_at=row["created_at"],
             updated_at=row["updated_at"],
             metadata=json.loads(row["metadata_json"]),
+            archived=bool(row["archived"]),
         )

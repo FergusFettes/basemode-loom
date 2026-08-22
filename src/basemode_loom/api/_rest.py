@@ -50,6 +50,7 @@ def _root_summary(store: GenerationStore, root: Node) -> dict[str, Any]:
         "name": tree.name,
         "created_at": root.created_at,
         "descendant_count": store.descendant_count(root.id),
+        "archived": tree.archived,
     }
 
 
@@ -195,8 +196,13 @@ def store_credential(
 
 
 @router.get("/roots")
-def list_roots(store: StoreDep) -> list[dict]:
-    return [_root_summary(store, r) for r in store.roots()]
+def list_roots(
+    store: StoreDep,
+    archived: Annotated[
+        bool, Query(description="Show archived trees instead of active ones")
+    ] = False,
+) -> list[dict]:
+    return [_root_summary(store, r) for r in store.roots(archived=archived)]
 
 
 @router.get("/embeddings", response_model=EmbeddingStatusResponse)
@@ -413,6 +419,19 @@ def create_root(body: CreateRootBody, store: StoreDep, request: Request) -> dict
     if body.temperature is not None:
         meta["temperature"] = body.temperature
     root = store.create_root(body.text, metadata=meta)
+    return _root_summary(store, root)
+
+
+class UpdateRootBody(BaseModel):
+    archived: bool
+
+
+@router.patch("/roots/{root_id}")
+def update_root(root_id: str, body: UpdateRootBody, store: StoreDep) -> dict:
+    root = store.get(root_id)
+    if root is None:
+        raise HTTPException(status_code=404, detail="root not found")
+    store.set_tree_archived(root.tree_id, body.archived)
     return _root_summary(store, root)
 
 
