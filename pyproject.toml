@@ -73,6 +73,9 @@ known-first-party = ["basemode_loom"]
 asyncio_mode = "auto"
 addopts = "--cov=src/basemode_loom --cov-report=term-missing"
 testpaths = ["tests"]
+markers = [
+    "integration: opt-in tests that make live provider requests",
+]
 
 [tool.coverage.run]
 source = ["src/basemode_loom"]

@@ -12,6 +12,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
 
@@ -26,6 +27,8 @@ jobs:
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
 
       - name: Read latest Basemode release
         id: basemode
@@ -95,7 +98,7 @@ jobs:
       - name: Run release checks
         if: steps.changes.outputs.changed == 'true'
         run: |
-          uv sync --group dev
+          uv sync --locked --group dev
           make release-check
 
       - name: Prepare release commit and tag

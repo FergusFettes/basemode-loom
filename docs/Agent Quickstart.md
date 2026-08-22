@@ -16,10 +16,11 @@ make docs
 Run focused tests while iterating, then run `make release-check` before
 handing off a release-facing change. It runs linting, the test suite, a strict
 documentation build, and package builds. Integration tests make live provider
-requests and are intentionally opt-in:
+requests and are intentionally opt-in. Set a model with a configured provider
+key before running them:
 
 ```bash
-make test-integration
+BASEMODE_LOOM_INTEGRATION_MODEL=gpt-4o-mini make test-integration
 ```
 
 Never print or commit provider credentials.

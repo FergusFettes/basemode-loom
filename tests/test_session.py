@@ -11,11 +11,6 @@ from basemode_loom.store import GenerationStore
 
 
 @pytest.fixture
-def store(tmp_path):
-    return GenerationStore(tmp_path / "test.sqlite")
-
-
-@pytest.fixture
 def branched_store(tmp_path):
     """Root → [A, B] → A has child C."""
     store = GenerationStore(tmp_path / "test.sqlite")

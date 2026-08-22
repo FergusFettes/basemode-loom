@@ -9,6 +9,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import ServerConfig
 from ..logging_utils import get_logger
+from ..model_plan import MAX_MAX_TOKENS, MIN_MAX_TOKENS, validate_model_plan
 from ..session import (
     GenerationCancelled,
     GenerationComplete,
@@ -36,46 +37,6 @@ def _is_number(value: Any) -> bool:
     return (isinstance(value, int) or isinstance(value, float)) and not isinstance(
         value, bool
     )
-
-
-def _validate_model_plan(raw: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
-    if not isinstance(raw, list) or not raw:
-        return None, "must be a non-empty list"
-    parsed: list[dict[str, Any]] = []
-    for idx, entry in enumerate(raw):
-        field = f"model_plan[{idx}]"
-        if not isinstance(entry, dict):
-            return None, f"{field} must be an object"
-        model = entry.get("model")
-        if not isinstance(model, str) or not model.strip():
-            return None, f"{field}.model must be a non-empty string"
-        n_branches = entry.get("n_branches", 1)
-        if not _is_int(n_branches) or n_branches < 1 or n_branches > 64:
-            return None, f"{field}.n_branches must be an integer between 1 and 64"
-        max_tokens = entry.get("max_tokens", 200)
-        if not _is_int(max_tokens) or max_tokens < 10 or max_tokens > 8000:
-            return None, f"{field}.max_tokens must be an integer between 10 and 8000"
-        temperature = entry.get("temperature", 0.9)
-        if (
-            not _is_number(temperature)
-            or math.isnan(float(temperature))
-            or float(temperature) < 0.0
-            or float(temperature) > 2.0
-        ):
-            return None, f"{field}.temperature must be a number between 0 and 2"
-        enabled = entry.get("enabled", True)
-        if not isinstance(enabled, bool):
-            return None, f"{field}.enabled must be a boolean"
-        parsed.append(
-            {
-                "model": model.strip(),
-                "n_branches": int(n_branches),
-                "max_tokens": int(max_tokens),
-                "temperature": float(temperature),
-                "enabled": enabled,
-            }
-        )
-    return parsed, None
 
 
 def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str, str]]:
@@ -110,8 +71,10 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
 
     if "max_tokens" in data:
         value = data["max_tokens"]
-        if not _is_int(value) or value < 10 or value > 8000:
-            errors["max_tokens"] = "must be an integer between 10 and 8000"
+        if not _is_int(value) or value < MIN_MAX_TOKENS or value > MAX_MAX_TOKENS:
+            errors["max_tokens"] = (
+                f"must be an integer between {MIN_MAX_TOKENS} and {MAX_MAX_TOKENS}"
+            )
         else:
             patch["max_tokens"] = value
 
@@ -119,7 +82,7 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         value = data["temperature"]
         if (
             not _is_number(value)
-            or math.isnan(float(value))
+            or not math.isfinite(float(value))
             or float(value) < 0.0
             or float(value) > 2.0
         ):
@@ -149,7 +112,7 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             patch["show_model_names"] = value
 
     if "model_plan" in data:
-        parsed_plan, error = _validate_model_plan(data["model_plan"])
+        parsed_plan, error = validate_model_plan(data["model_plan"])
         if error is not None:
             errors["model_plan"] = error
         else:

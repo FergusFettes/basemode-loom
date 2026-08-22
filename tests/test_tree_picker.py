@@ -29,11 +29,6 @@ def make_view(store, current_root_id=""):
 
 
 @pytest.fixture
-def store(tmp_path):
-    return GenerationStore(tmp_path / "test.sqlite")
-
-
-@pytest.fixture
 def multi_tree_store(tmp_path):
     """Three separate trees in the store."""
     store = GenerationStore(tmp_path / "test.sqlite")

@@ -2,16 +2,10 @@ import pytest
 
 from basemode_loom.display import DisplayLine
 from basemode_loom.session import LoomSession
-from basemode_loom.store import GenerationStore
 from basemode_loom.tui.app import BasemodeApp
 from basemode_loom.tui.screens.loom import LoomScreen
 from basemode_loom.tui.widgets.loom_view import LoomView
 from basemode_loom.tui.widgets.stream_view import StreamView
-
-
-@pytest.fixture
-def store(tmp_path):
-    return GenerationStore(tmp_path / "test.sqlite")
 
 
 @pytest.fixture

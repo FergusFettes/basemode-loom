@@ -22,7 +22,7 @@ test-core: ## Run the test suite (alias of test)
 	uv run pytest tests
 
 test-integration: ## Run integration-marked tests
-	uv run pytest -m integration
+	uv run pytest --no-cov -m integration
 
 lint: ## Check lint and formatting
 	uv run ruff check src tests

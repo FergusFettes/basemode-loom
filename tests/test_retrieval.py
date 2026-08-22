@@ -27,11 +27,6 @@ def _build_fts(store: GenerationStore, node_ids: list[str]) -> None:
 
 
 @pytest.fixture
-def store(tmp_path):
-    return GenerationStore(tmp_path / "plain.sqlite")
-
-
-@pytest.fixture
 def fts_store(tmp_path):
     """Two trees with distinct vocabulary, indexed in a synthetic FTS table."""
     store = GenerationStore(tmp_path / "corpus.sqlite")

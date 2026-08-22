@@ -26,20 +26,12 @@ from .diagnostics import (
     provider_diagnostic,
 )
 from .logging_utils import get_logger
+from .model_plan import MAX_MAX_TOKENS, MIN_MAX_TOKENS, ModelPlanEntry, parse_model_plan
 from .model_resolver import resolve_model_id
 from .naming import generate_name, should_name
 from .store import GenerationStore, Node
 
 log = get_logger(__name__)
-
-
-@dataclass(frozen=True)
-class ModelPlanEntry:
-    model: str
-    n_branches: int
-    max_tokens: int
-    temperature: float
-    enabled: bool = True
 
 
 # ---------------------------------------------------------------------------
@@ -784,7 +776,7 @@ class LoomSession:
         self._model_plan[0] = ModelPlanEntry(
             model=p.model,
             n_branches=p.n_branches,
-            max_tokens=max(10, min(max_tokens, 8000)),
+            max_tokens=max(MIN_MAX_TOKENS, min(max_tokens, MAX_MAX_TOKENS)),
             temperature=p.temperature,
             enabled=p.enabled,
         )
@@ -856,21 +848,7 @@ class LoomSession:
         self._selected_idx = self._child_path.get(self._current_id, 0)
 
     def _parse_model_plan(self, raw_plan: list[dict]) -> list[ModelPlanEntry]:
-        parsed: list[ModelPlanEntry] = []
-        for raw in raw_plan:
-            model = str(raw.get("model", "")).strip()
-            if not model:
-                continue
-            parsed.append(
-                ModelPlanEntry(
-                    model=model,
-                    n_branches=max(1, int(raw.get("n_branches", 1))),
-                    max_tokens=max(10, min(int(raw.get("max_tokens", 200)), 8000)),
-                    temperature=float(raw.get("temperature", 0.9)),
-                    enabled=bool(raw.get("enabled", True)),
-                )
-            )
-        return parsed
+        return parse_model_plan(raw_plan)
 
     def _estimate_usage(
         self, model: str, strategy: str, prefix: str, completion: str
@@ -970,16 +948,7 @@ class LoomSession:
             root_node.tree_id,
             show_model_names=self.show_model_names,
             rewind_split_tokens=self.rewind_split_tokens,
-            model_plan=[
-                {
-                    "model": p.model,
-                    "n_branches": p.n_branches,
-                    "max_tokens": p.max_tokens,
-                    "temperature": p.temperature,
-                    "enabled": p.enabled,
-                }
-                for p in self._model_plan
-            ],
+            model_plan=[p.as_dict() for p in self._model_plan],
         )
 
     @property

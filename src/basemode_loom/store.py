@@ -12,6 +12,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from .model_plan import normalize_model_plan
+
 _LATEST_USER_VERSION = 4
 _CONFIG_METADATA_KEYS = {
     "context",
@@ -58,7 +60,7 @@ def _normalize_root_metadata_config(metadata: dict[str, Any]) -> dict[str, Any]:
         if key not in _CONFIG_METADATA_KEYS and key != "config"
     }
 
-    model_plan = _normalize_model_plan(config.get("model_plan"))
+    model_plan = normalize_model_plan(config.get("model_plan"))
     if not model_plan:
         model_plan = _model_plan_from_legacy(metadata, config)
 
@@ -77,28 +79,6 @@ def _normalize_root_metadata_config(metadata: dict[str, Any]) -> dict[str, Any]:
     if new_config:
         normalized["config"] = new_config
     return normalized
-
-
-def _normalize_model_plan(raw_plan: Any) -> list[dict[str, Any]]:
-    if not isinstance(raw_plan, list):
-        return []
-    plan: list[dict[str, Any]] = []
-    for entry in raw_plan:
-        if not isinstance(entry, dict):
-            continue
-        model = str(entry.get("model", "")).strip()
-        if not model:
-            continue
-        plan.append(
-            {
-                "model": model,
-                "n_branches": max(1, int(entry.get("n_branches", 1))),
-                "max_tokens": max(10, min(int(entry.get("max_tokens", 200)), 8000)),
-                "temperature": float(entry.get("temperature", 0.9)),
-                "enabled": bool(entry.get("enabled", True)),
-            }
-        )
-    return plan
 
 
 def _model_plan_from_legacy(
@@ -129,7 +109,7 @@ def _model_plan_from_legacy(
 
 def _tree_settings_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     config = metadata.get("config") if isinstance(metadata.get("config"), dict) else {}
-    model_plan = _normalize_model_plan(config.get("model_plan"))
+    model_plan = normalize_model_plan(config.get("model_plan"))
     if not model_plan:
         model_plan = _model_plan_from_legacy(metadata, config)
     if not model_plan:
@@ -1400,7 +1380,7 @@ class GenerationStore:
     @staticmethod
     def _tree(row: sqlite3.Row) -> Tree:
         raw_plan = json.loads(row["model_plan_json"])
-        model_plan = _normalize_model_plan(raw_plan)
+        model_plan = normalize_model_plan(raw_plan)
         if not model_plan:
             model_plan = _DEFAULT_MODEL_PLAN
         return Tree(
