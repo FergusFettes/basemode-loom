@@ -829,6 +829,10 @@ async def test_generate_shuffles_completion_order(store, monkeypatch):
 
     monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
     monkeypatch.setattr("basemode_loom.session.random.shuffle", reverse)
+    monkeypatch.setattr(
+        "basemode_loom.session.normalize_completion_segment",
+        lambda _prefix, completion: completion,
+    )
     _, ch = store.save_continuations(
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )

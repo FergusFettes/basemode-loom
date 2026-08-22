@@ -6,6 +6,25 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.5.2 - 2026-08-22
+
+### Added
+
+- Archive and restore trees, including a tree-topology metrics module.
+- Optional one-off OpenAI image generation for a branch.
+
+### Changed
+
+- Require Basemode 0.1.14 or newer, which supplies per-model generation
+  quirks and safely omits unsupported temperature parameters.
+
+### Fixed
+
+- Treat empty provider completions as failed branches rather than saving empty
+  nodes.
+- Keep the shuffled-completion test independent of Basemode's completion
+  normalisation behaviour.
+
 ## 0.5.1 - 2026-08-21
 
 ### Changed
