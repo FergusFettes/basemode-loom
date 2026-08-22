@@ -202,7 +202,7 @@ wheels = [
 
 [[package]]
 name = "basemode"
-version = "0.1.11"
+version = "0.1.14"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -212,9 +212,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e6/21/4bb83ab6adcc899e111784dd160408d31c47e58ed1956677928365318577/basemode-0.1.11.tar.gz", hash = "sha256:8d4c4d57efc5b748f8cf47d672d59394835ab6c8c1c1bfe2af89d9fbaf24557a", size = 230048, upload-time = "2026-08-20T23:20:36.977Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/4a/8f/361b2550d917a1264d2c8b300215f5054cdb49495660bdba021bb8c1c003/basemode-0.1.14.tar.gz", hash = "sha256:36e7122eea0ffc187d12ade6a0490ec9a238443c571116507fb8c414aff44803", size = 249088, upload-time = "2026-08-22T14:06:35.193Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0e/63/8240ce0f5fee6371ebe517c2b44ac1217590c129e84123b10788ce36713f/basemode-0.1.11-py3-none-any.whl", hash = "sha256:fb18a131e5a140955cc78a38ab400cfa9005c5bd0a787d245e1c60de71f5c5b3", size = 40599, upload-time = "2026-08-20T23:20:36.061Z" },
+    { url = "https://files.pythonhosted.org/packages/f6/fb/1daef74a84de21c7a279519f70c43f97faec582067a04c1f52e83b7e41aa/basemode-0.1.14-py3-none-any.whl", hash = "sha256:f06a1d5abe6f172ec4928fcc18572758efe62d025eef23a1899245ae15fdebdb", size = 52882, upload-time = "2026-08-22T14:06:34.123Z" },
 ]
 
 [[package]]
@@ -225,6 +225,7 @@ dependencies = [
     { name = "basemode" },
     { name = "fastapi" },
     { name = "loguru" },
+    { name = "openai" },
     { name = "textual" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -251,10 +252,11 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "basemode", specifier = ">=0.1.11" },
+    { name = "basemode", specifier = ">=0.1.14" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "mlx-embeddings", marker = "extra == 'embed-mlx'", specifier = ">=0.0.3" },
+    { name = "openai", specifier = ">=1.60.0" },
     { name = "sqlite-vec", marker = "extra == 'embed'", specifier = ">=0.1.6" },
     { name = "sqlite-vec", marker = "extra == 'embed-mlx'", specifier = ">=0.1.6" },
     { name = "textual", specifier = ">=0.85.0" },
