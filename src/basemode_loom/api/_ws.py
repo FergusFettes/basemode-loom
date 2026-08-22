@@ -198,10 +198,16 @@ async def session_ws(
                                 "type": "generation_error",
                                 "error": safe_error_message(event.error),
                             }
-                            incident_id = failure.incident_id if failure else event.incident_id
+                            incident_id = (
+                                failure.incident_id if failure else event.incident_id
+                            )
                             category = failure.category if failure else event.category
                             status = failure.status if failure else event.status
-                            finish_reason = failure.finish_reason if failure else event.finish_reason
+                            finish_reason = (
+                                failure.finish_reason
+                                if failure
+                                else event.finish_reason
+                            )
                             if incident_id is not None:
                                 response["incident_id"] = incident_id
                             if category is not None:
