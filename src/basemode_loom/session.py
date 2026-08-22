@@ -55,12 +55,27 @@ class GenerationComplete:
 
 
 @dataclass(frozen=True)
+class GenerationFailure:
+    """A single failed member of a multi-model generation batch."""
+
+    model: str
+    model_idx: int
+    branch_idx: int
+    slot_idx: int
+    incident_id: str | None = None
+    category: str | None = None
+    status: int | None = None
+    finish_reason: str | None = None
+
+
+@dataclass(frozen=True)
 class GenerationError:
     error: Exception
     incident_id: str | None = None
     category: str | None = None
     status: int | None = None
     finish_reason: str | None = None
+    failures: tuple[GenerationFailure, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -536,6 +551,19 @@ class LoomSession:
                 category=first.category,
                 status=first.status,
                 finish_reason=first.finish_reason,
+                failures=tuple(
+                    GenerationFailure(
+                        model=branch_plan[slot_idx][2].model,
+                        model_idx=branch_plan[slot_idx][0],
+                        branch_idx=branch_plan[slot_idx][1],
+                        slot_idx=slot_idx,
+                        incident_id=diagnostic.incident_id,
+                        category=diagnostic.category,
+                        status=diagnostic.status,
+                        finish_reason=diagnostic.finish_reason,
+                    )
+                    for slot_idx, diagnostic in sorted(branch_errors.items())
+                ),
             )
 
     def _save_completions(

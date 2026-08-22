@@ -658,6 +658,8 @@ async def test_generate_empty_stream_is_reported_as_error_not_saved(store, monke
     error_events = [e for e in events if isinstance(e, GenerationError)]
     assert len(error_events) == 1
     assert error_events[0].category == "empty_response"
+    assert error_events[0].failures[0].model == session.model
+    assert error_events[0].failures[0].branch_idx == 0
     assert store.children(ch[0].id) == []
 
 

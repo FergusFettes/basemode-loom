@@ -376,7 +376,9 @@ Validation constraints:
 - `state`: full serialized `SessionState`
 - `token`: streamed token with `model_idx`, `branch_idx`, and `slot_idx`
 - `generation_complete`: includes `new_nodes`
-- `generation_error`
+- `generation_error`: one per failed provider branch when a batch partially
+  fails; includes the model, model/branch/slot indices, diagnostic category,
+  and any finish reason or provider status
 - `generation_cancelled`
 - `tree_named`: emitted when a root gets auto-named
 - `error`: protocol or validation error

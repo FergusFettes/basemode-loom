@@ -192,19 +192,32 @@ async def session_ws(
                                 }
                             )
                     elif isinstance(event, GenerationError):
-                        response: dict[str, Any] = {
-                            "type": "generation_error",
-                            "error": safe_error_message(event.error),
-                        }
-                        if event.incident_id is not None:
-                            response["incident_id"] = event.incident_id
-                        if event.category is not None:
-                            response["category"] = event.category
-                        if event.status is not None:
-                            response["status"] = event.status
-                        if event.finish_reason is not None:
-                            response["finish_reason"] = event.finish_reason
-                        await websocket.send_json(response)
+                        failures = event.failures or (None,)
+                        for failure in failures:
+                            response: dict[str, Any] = {
+                                "type": "generation_error",
+                                "error": safe_error_message(event.error),
+                            }
+                            incident_id = failure.incident_id if failure else event.incident_id
+                            category = failure.category if failure else event.category
+                            status = failure.status if failure else event.status
+                            finish_reason = failure.finish_reason if failure else event.finish_reason
+                            if incident_id is not None:
+                                response["incident_id"] = incident_id
+                            if category is not None:
+                                response["category"] = category
+                            if status is not None:
+                                response["status"] = status
+                            if finish_reason is not None:
+                                response["finish_reason"] = finish_reason
+                            if failure is not None:
+                                response.update(
+                                    model=failure.model,
+                                    model_idx=failure.model_idx,
+                                    branch_idx=failure.branch_idx,
+                                    slot_idx=failure.slot_idx,
+                                )
+                            await websocket.send_json(response)
                     elif isinstance(event, GenerationCancelled):
                         await websocket.send_json({"type": "generation_cancelled"})
                         await push_state()
