@@ -14,6 +14,7 @@ from typing import Any
 
 from . import _schema
 from .model_plan import normalize_model_plan
+
 _CONFIG_METADATA_KEYS = {
     "context",
     "max_tokens",
