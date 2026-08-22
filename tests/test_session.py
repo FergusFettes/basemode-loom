@@ -475,6 +475,7 @@ def test_save_persists_model_and_tokens(store):
             "n_branches": 3,
             "temperature": 0.9,
             "enabled": True,
+            "pinned_settings": True,
         }
     ]
     assert tree.show_model_names is True

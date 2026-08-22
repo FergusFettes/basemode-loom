@@ -357,7 +357,8 @@ Config updates use `set_params`:
       "n_branches": 2,
       "max_tokens": 200,
       "temperature": 0.9,
-      "enabled": true
+      "enabled": true,
+      "pinned_settings": true
     }
   ],
   "persist": true

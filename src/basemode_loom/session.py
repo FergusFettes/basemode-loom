@@ -822,6 +822,7 @@ class LoomSession:
             max_tokens=p.max_tokens,
             temperature=p.temperature,
             enabled=p.enabled,
+            pinned_settings=p.pinned_settings,
         )
 
     def set_max_tokens(self, max_tokens: int) -> None:
@@ -834,6 +835,7 @@ class LoomSession:
             max_tokens=max(MIN_MAX_TOKENS, min(max_tokens, MAX_MAX_TOKENS)),
             temperature=p.temperature,
             enabled=p.enabled,
+            pinned_settings=p.pinned_settings,
         )
 
     def set_n_branches(self, n: int) -> None:
@@ -847,6 +849,7 @@ class LoomSession:
                 max_tokens=p.max_tokens,
                 temperature=p.temperature,
                 enabled=p.enabled,
+                pinned_settings=p.pinned_settings,
             )
             for p in self._model_plan
         ]
@@ -1036,6 +1039,7 @@ class LoomSession:
             max_tokens=p.max_tokens,
             temperature=value,
             enabled=p.enabled,
+            pinned_settings=p.pinned_settings,
         )
 
     @property

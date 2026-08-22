@@ -59,6 +59,7 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
                 "max_tokens": p.max_tokens,
                 "temperature": p.temperature,
                 "enabled": p.enabled,
+                "pinned_settings": p.pinned_settings,
             }
             for p in state.model_plan
         ],

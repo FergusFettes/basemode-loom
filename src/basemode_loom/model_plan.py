@@ -18,6 +18,7 @@ class ModelPlanEntry:
     max_tokens: int
     temperature: float
     enabled: bool = True
+    pinned_settings: bool = True
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -26,6 +27,7 @@ class ModelPlanEntry:
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
             "enabled": self.enabled,
+            "pinned_settings": self.pinned_settings,
         }
 
 
@@ -58,6 +60,7 @@ def normalize_model_plan(raw_plan: Any) -> list[dict[str, Any]]:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 enabled=bool(entry.get("enabled", True)),
+                pinned_settings=bool(entry.get("pinned_settings", True)),
             ).as_dict()
         )
     return plan
@@ -107,6 +110,9 @@ def validate_model_plan(
         enabled = entry.get("enabled", True)
         if not isinstance(enabled, bool):
             return None, f"{field}.enabled must be a boolean"
+        pinned_settings = entry.get("pinned_settings", True)
+        if not isinstance(pinned_settings, bool):
+            return None, f"{field}.pinned_settings must be a boolean"
         parsed.append(
             ModelPlanEntry(
                 model=model.strip(),
@@ -114,6 +120,7 @@ def validate_model_plan(
                 max_tokens=max_tokens,
                 temperature=float(temperature),
                 enabled=enabled,
+                pinned_settings=pinned_settings,
             ).as_dict()
         )
     return parsed, None
