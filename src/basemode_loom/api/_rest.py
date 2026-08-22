@@ -15,6 +15,7 @@ from ..credentials import (
     list_provider_status,
     store_provider_key,
 )
+from ..graph_stats import analyze_subtree
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -474,6 +475,14 @@ def get_node(node_id: str, store: StoreDep) -> dict:
     if node is None:
         raise HTTPException(status_code=404, detail="node not found")
     return {**node_to_dict(node), "full_text": store.full_text(node_id)}
+
+
+@router.get("/nodes/{node_id}/shape")
+def get_node_shape(node_id: str, store: StoreDep) -> dict:
+    """Topology metrics (size, depth, branching) for the subtree at `node_id`."""
+    if store.get(node_id) is None:
+        raise HTTPException(status_code=404, detail="node not found")
+    return analyze_subtree(store, node_id).as_dict()
 
 
 @router.get("/models")

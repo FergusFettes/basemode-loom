@@ -1184,6 +1184,32 @@ class GenerationStore:
             result = conn.execute("DELETE FROM nodes WHERE id = ?", (node.id,))
         return result.rowcount + len(node_ids) - 1
 
+    def subtree_edges(self, node_id: str) -> list[tuple[str, str | None]]:
+        """Return (id, parent_id) for `node_id` and every descendant.
+
+        `node_id` itself is included with its real parent_id (which callers
+        computing shape metrics should treat as the subtree's root, i.e.
+        ignore any edge pointing outside the returned set).
+        """
+        resolved = self.resolve_node_id(node_id)
+        if resolved is None:
+            return []
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                WITH RECURSIVE sub(id, parent_id) AS (
+                    SELECT id, parent_id FROM nodes WHERE id = ? AND kind != 'context'
+                    UNION ALL
+                    SELECT n.id, n.parent_id FROM nodes n
+                    JOIN sub s ON n.parent_id = s.id
+                    WHERE n.kind != 'context'
+                )
+                SELECT id, parent_id FROM sub
+                """,
+                (resolved,),
+            ).fetchall()
+        return [(str(row["id"]), row["parent_id"]) for row in rows]
+
     def descendant_count(self, node_id: str) -> int:
         """Return the total number of descendants (not including the node itself)."""
         resolved = self.resolve_node_id(node_id)
