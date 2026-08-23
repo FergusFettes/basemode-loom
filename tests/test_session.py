@@ -707,6 +707,32 @@ async def test_generate_saves_normalized_completion_segments(store, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_generate_normalizes_double_hyphens_in_stream_and_storage(
+    store, monkeypatch
+):
+    async def fake_continue(prefix, model, **kwargs):
+        yield "The cephalopods-"
+        yield "-those magnificent"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    events = [event async for event in session.generate()]
+    streamed = "".join(
+        event.token for event in events if isinstance(event, TokenReceived)
+    )
+    complete = next(event for event in events if isinstance(event, GenerationComplete))
+
+    assert streamed == "The cephalopods—those magnificent"
+    assert complete.new_nodes[0].text == streamed
+    assert store.children(ch[0].id)[0].text == streamed
+
+
+@pytest.mark.asyncio
 async def test_generate_cancel(store, monkeypatch):
     import asyncio
 

@@ -74,6 +74,9 @@ async for event in session.generate():
 | `GenerationError` | `error: Exception` | Generation failed |
 | `GenerationCancelled` | — | Cancelled via `session.cancel()` |
 
+Generated prose normalises a double hyphen (`--`) to an em dash (`—`) before it
+is streamed and stored. Manual text and existing nodes are left unchanged.
+
 ```python
 session.cancel()  # signal cancellation; will yield GenerationCancelled
 ```

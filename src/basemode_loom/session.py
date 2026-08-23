@@ -49,6 +49,40 @@ _ATTACHES_TO_PREVIOUS_WORD_RE = re.compile(
 BOUNDARY_HEAD_CHARS = 32
 
 
+def _normalize_typography(text: str) -> str:
+    """Apply Loom's prose-specific typography normalisation."""
+    return text.replace("--", "—")
+
+
+class _StreamTypographyNormalizer:
+    """Convert double hyphens without exposing an unnormalised stream."""
+
+    def __init__(self) -> None:
+        self._pending_hyphen = False
+
+    def push(self, text: str) -> str:
+        output: list[str] = []
+        for char in text:
+            if self._pending_hyphen:
+                if char == "-":
+                    output.append("—")
+                    self._pending_hyphen = False
+                    continue
+                output.append("-")
+                self._pending_hyphen = False
+            if char == "-":
+                self._pending_hyphen = True
+            else:
+                output.append(char)
+        return "".join(output)
+
+    def flush(self) -> str:
+        if not self._pending_hyphen:
+            return ""
+        self._pending_hyphen = False
+        return "-"
+
+
 def _boundary_metadata(
     raw_head: str | None, streamed: str, normalized: str
 ) -> dict[str, Any]:
@@ -557,6 +591,7 @@ class LoomSession:
                     return
 
         buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
+        stream_typography = [_StreamTypographyNormalizer() for _ in branch_plan]
         # What each provider's stream opened with, before basemode's healing
         # touched it. Kept per branch so a seam defect can be attributed to
         # the model or to the repair long after the stream is gone.
@@ -581,7 +616,9 @@ class LoomSession:
                 return None
             raw = "".join(buffers[slot_idx])
             plan_entry = branch_plan[slot_idx]
-            if not normalize_completion_segment(prefix, raw).strip():
+            if not _normalize_typography(
+                normalize_completion_segment(prefix, raw)
+            ).strip():
                 _model_idx, _branch_idx, plan = plan_entry
                 log.warning(
                     "generation branch produced empty completion "
@@ -606,7 +643,11 @@ class LoomSession:
                 raw_heads=[raw_heads[slot_idx]],
                 usage_events=[usage_events[slot_idx]],
                 timings=[
-                    (started_at[slot_idx], first_token_at[slot_idx], finished_at[slot_idx])
+                    (
+                        started_at[slot_idx],
+                        first_token_at[slot_idx],
+                        finished_at[slot_idx],
+                    )
                 ],
             )[0]
             saved[slot_idx] = (raw, node)
@@ -685,6 +726,14 @@ class LoomSession:
                 kind, slot_idx, model_idx, branch_idx, payload = item
                 if kind == "done":
                     done += 1
+                    trailing = stream_typography[slot_idx].flush()
+                    if trailing:
+                        yield TokenReceived(
+                            model_idx=model_idx,
+                            branch_idx=branch_idx,
+                            slot_idx=slot_idx,
+                            token=trailing,
+                        )
                     node = finish_branch(slot_idx)
                     if node is not None:
                         yield BranchComplete(
@@ -699,12 +748,14 @@ class LoomSession:
                 else:
                     tok = str(payload)
                     buffers[slot_idx].append(tok)
-                    yield TokenReceived(
-                        model_idx=model_idx,
-                        branch_idx=branch_idx,
-                        slot_idx=slot_idx,
-                        token=tok,
-                    )
+                    normalized_token = stream_typography[slot_idx].push(tok)
+                    if normalized_token:
+                        yield TokenReceived(
+                            model_idx=model_idx,
+                            branch_idx=branch_idx,
+                            slot_idx=slot_idx,
+                            token=normalized_token,
+                        )
 
                 if cancel_token.is_set():
                     cancelled = True
@@ -781,12 +832,11 @@ class LoomSession:
             raw_head,
             branch_events,
             (started, first_token, finished),
-        ) in zip(
-            branch_plan, completions, heads, events, branch_timings, strict=False
-        ):
+        ) in zip(branch_plan, completions, heads, events, branch_timings, strict=False):
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
-            normalized = normalize_completion_segment(prefix, completion)
+            boundary_normalized = normalize_completion_segment(prefix, completion)
+            normalized = _normalize_typography(boundary_normalized)
             usage = self._estimate_usage(
                 resolved,
                 strategy_name,
@@ -812,7 +862,7 @@ class LoomSession:
                     "model_branch_index": branch_idx,
                     "usage": usage,
                     "timing": timing,
-                    **_boundary_metadata(raw_head, completion, normalized),
+                    **_boundary_metadata(raw_head, completion, boundary_normalized),
                 },
             )
             new_children.append(node)
