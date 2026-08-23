@@ -129,9 +129,9 @@ def _timing_metadata(
         "streaming_ms": round(streaming_ms, 3),
         "completion_tokens": completion_tokens,
     }
-    if completion_tokens > 0 and streaming_ms > 0:
+    if completion_tokens > 0 and elapsed_ms > 0:
         result["completion_tokens_per_second"] = round(
-            completion_tokens / (streaming_ms / 1000), 3
+            completion_tokens / (elapsed_ms / 1000), 3
         )
     return result
 
@@ -695,6 +695,8 @@ class LoomSession:
                     ok=False,
                     category=diagnostic.category,
                     status=diagnostic.status,
+                    error_code=diagnostic.error_code,
+                    error_param=diagnostic.error_param,
                 )
                 log.error(
                     "generation branch failed "

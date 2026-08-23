@@ -416,10 +416,12 @@ where all three agree.
 
 Every successful generated node also carries `metadata.timing`: monotonic
 `ttft_ms` (provider request start to its first streamed chunk), `elapsed_ms`,
-`streaming_ms`, `completion_tokens`, and, when the stream lasted long enough,
-`completion_tokens_per_second`. The count is the same provider-reported or
-estimated completion count recorded in `metadata.usage`, so consumers can
-check `usage.is_estimate` when comparing models.
+`streaming_ms`, `completion_tokens`, and, when the request duration is measurable,
+`completion_tokens_per_second`. This is end-to-end throughput: completion
+tokens divided by the whole provider-request elapsed time, including TTFT.
+The count is the same provider-reported or estimated completion count recorded
+in `metadata.usage`, so consumers can check `usage.is_estimate` when comparing
+models.
 
 Unlike ratings and health, flags live in the corpus database rather than in
 basemode's config, because the evidence does: a flag is worth nothing without

@@ -1151,6 +1151,21 @@ async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch
     assert state.tree_pricing_complete is True
 
 
+def test_timing_throughput_is_end_to_end() -> None:
+    from basemode_loom.session import _timing_metadata
+
+    timing = _timing_metadata(
+        started_at=100.0,
+        first_token_at=101.5,
+        finished_at=102.0,
+        completion_tokens=12,
+    )
+
+    assert timing["ttft_ms"] == 1500.0
+    assert timing["streaming_ms"] == 500.0
+    assert timing["completion_tokens_per_second"] == 6.0
+
+
 def test_default_model_plan_is_pinned_to_global_settings(store):
     """A tree with no configured plan follows the global branches/tokens."""
     root, ch = store.save_continuations(

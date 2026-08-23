@@ -4,7 +4,7 @@ import uuid
 from dataclasses import dataclass
 
 from basemode.exceptions import EmptyCompletionError
-from basemode.health import classify_error
+from basemode import health
 
 
 @dataclass(frozen=True)
@@ -13,6 +13,8 @@ class ProviderDiagnostic:
     category: str
     status: int | None = None
     finish_reason: str | None = None
+    error_code: str | None = None
+    error_param: str | None = None
 
 
 def provider_diagnostic(error: BaseException) -> ProviderDiagnostic:
@@ -25,8 +27,18 @@ def provider_diagnostic(error: BaseException) -> ProviderDiagnostic:
         return ProviderDiagnostic(
             uuid.uuid4().hex, "empty_response", None, error.finish_reason
         )
-    category, status = classify_error(error)
-    return ProviderDiagnostic(uuid.uuid4().hex, category, status)
+    category, status = health.classify_error(error)
+    extract_details = getattr(health, "error_details", None)
+    error_code, error_param = (
+        extract_details(error) if callable(extract_details) else (None, None)
+    )
+    return ProviderDiagnostic(
+        uuid.uuid4().hex,
+        category,
+        status,
+        error_code=error_code,
+        error_param=error_param,
+    )
 
 
 def empty_response_diagnostic() -> ProviderDiagnostic:
