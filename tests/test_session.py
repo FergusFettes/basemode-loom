@@ -1201,6 +1201,6 @@ async def test_generate_saves_each_branch_as_it_finishes(store, monkeypatch):
         events.append(event)
 
     assert [type(event) for event in events].count(BranchComplete) == 2
-    complete = [e for e in events if isinstance(e, GenerationComplete)][0]
+    complete = next(e for e in events if isinstance(e, GenerationComplete))
     assert len(complete.new_nodes) == 2
     assert len(store.children(ch[0].id)) == 2

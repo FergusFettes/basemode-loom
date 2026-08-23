@@ -792,11 +792,7 @@ class LoomSession:
 
         # The current node only moves if it was itself rewritten; otherwise it
         # came along untouched under the new branch.
-        current = (
-            last_new_node
-            if last_changed_idx == len(lineage) - 1
-            else lineage[-1]
-        )
+        current = last_new_node if last_changed_idx == len(lineage) - 1 else lineage[-1]
 
         # Point the checked-out path at the new chain; without this the store
         # still walks down the pre-edit branch and the edit looks like it was
@@ -993,7 +989,9 @@ class LoomSession:
                 min(int(config_patch["global_max_tokens"]), MAX_MAX_TOKENS),
             )
         if "global_n_branches" in config_patch:
-            self.global_n_branches = max(1, min(int(config_patch["global_n_branches"]), 64))
+            self.global_n_branches = max(
+                1, min(int(config_patch["global_n_branches"]), 64)
+            )
         if "rewind_split_tokens" in config_patch:
             self.rewind_split_tokens = int(bool(config_patch["rewind_split_tokens"]))
         if "show_model_names" in config_patch:

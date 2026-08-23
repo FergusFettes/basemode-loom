@@ -171,8 +171,14 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
                 msg["fields"]["max_tokens"] == "must be an integer between 1 and 8000"
             )
             assert msg["fields"]["rewind_split_tokens"] == "must be a boolean"
-            assert msg["fields"]["global_max_tokens"] == "must be an integer between 1 and 8000"
-            assert msg["fields"]["global_n_branches"] == "must be an integer between 1 and 64"
+            assert (
+                msg["fields"]["global_max_tokens"]
+                == "must be an integer between 1 and 8000"
+            )
+            assert (
+                msg["fields"]["global_n_branches"]
+                == "must be an integer between 1 and 64"
+            )
             assert msg["fields"]["persist"] == "only persist=true is supported"
 
     assert store.tree_for_node(root.id).model_plan[0]["max_tokens"] == 200
