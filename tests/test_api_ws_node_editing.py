@@ -88,6 +88,29 @@ def test_edit_node_with_unchanged_text_is_a_no_op(tmp_path) -> None:
     assert state["full_text"] == "Hello world"
 
 
+def test_remove_leading_space_updates_the_existing_node_in_place(tmp_path) -> None:
+    store, root, child = _seed(tmp_path)
+    grandchild = store.add_child(
+        child.id, " again", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "remove_leading_space", "node_id": child.id})
+            state = _recv_state(ws)
+
+    assert state["current_node_id"] == child.id
+    assert state["current_node"]["text"] == "world"
+    assert state["full_text"] == "Helloworld"
+    assert store.get(grandchild.id) is not None
+    assert [node.id for node in store.children(root.id)] == [child.id]
+    assert store.get(child.id).metadata["in_place_edits"] == [
+        {"kind": "remove_leading_space", "original": " "}
+    ]
+
+
 def test_edit_node_requires_a_node_id(tmp_path) -> None:
     store, _root, child = _seed(tmp_path)
     app = create_app(store)

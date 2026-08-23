@@ -472,6 +472,16 @@ async def session_ws(
                 session.edit_node_text(node_id, text, heal_boundary=True)
                 await push_state()
 
+            elif msg_type == "remove_leading_space":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("remove_leading_space requires a node_id")
+                    continue
+                # This narrowly corrects an unwanted generated token boundary;
+                # unlike edit_node it preserves node identity and descendants.
+                session.remove_leading_space(node_id)
+                await push_state()
+
             elif msg_type == "add_node":
                 parent_id = data.get("parent_id")
                 text = data.get("text")

@@ -1002,6 +1002,27 @@ class LoomSession:
         self._checkout_node(new_node.id)
         return new_node
 
+    def remove_leading_space(self, node_id: str) -> Node | None:
+        """Remove one leading space from a node without forking it.
+
+        This is deliberately narrower than text editing: generation token
+        boundaries occasionally put a word-opening space on a node where it
+        is unwanted.  Retaining the node keeps its descendants and its place
+        among the parent's sibling choices intact.  Record the correction in
+        metadata so the generated text and the manual boundary adjustment are
+        both recoverable.
+        """
+        node = self._store.get(node_id)
+        if node is None or not node.text.startswith(" "):
+            return None
+        updated = self._store.update_text(node.id, node.text[1:])
+        edits = node.metadata.get("in_place_edits", [])
+        history = list(edits) if isinstance(edits, list) else []
+        history.append({"kind": "remove_leading_space", "original": " "})
+        return self._store.update_metadata(
+            updated.id, {"in_place_edits": history}
+        )
+
     def add_child_node(self, parent_id: str, text: str) -> Node | None:
         """Hang a hand-written child off ``parent_id`` and check it out.
 
