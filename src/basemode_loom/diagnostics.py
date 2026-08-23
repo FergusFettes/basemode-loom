@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from basemode.exceptions import EmptyCompletionError
 from basemode import health
+from basemode.exceptions import EmptyCompletionError
 
 
 @dataclass(frozen=True)
