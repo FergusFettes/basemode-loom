@@ -335,6 +335,8 @@ guards. Provider exception details are not returned to clients.
 {"type": "edit", "original": "...", "edited": "..."}
 {"type": "edit_node", "node_id": "...", "text": "..."}
 {"type": "add_node", "parent_id": "...", "text": "..."}
+{"type": "delete_node", "node_id": "..."}
+{"type": "bookmark_node", "node_id": "..."}
 {"type": "bookmark_toggle"}
 {"type": "bookmark_next"}
 {"type": "view_toggle"}
@@ -346,8 +348,16 @@ guards. Provider exception details are not returned to clients.
 `edit_node` targets one node instead: it forks that node alone (rewriting the
 root in place, since a root has nothing to fork from) and checks the result
 out. `add_node` hangs a hand-written child off `parent_id`, tagged
-`manual`/`manual` rather than a model, and checks it out. Both reply with a
-`state` message.
+`manual`/`manual` rather than a model, and checks it out. Both take their
+text straight from a person, so both restore a missing space between the new
+segment and the text before it — except where the segment opens with closing
+punctuation or a contraction, which attach to the previous word. Both reply
+with a `state` message.
+
+`delete_node` removes a node and its whole subtree, landing the cursor on the
+parent; it refuses a root, which would take the tree with it. `bookmark_node`
+toggles the bookmark on any node, where `bookmark_toggle` only reaches the
+current one.
 
 Config updates use `set_params`:
 

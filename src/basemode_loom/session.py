@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import difflib
 import random
+import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field, replace
 from itertools import pairwise
@@ -17,7 +18,7 @@ from typing import Any, Literal
 
 from basemode.continue_ import continue_text
 from basemode.detect import detect_strategy
-from basemode.healing import normalize_completion_segment
+from basemode.healing import needs_leading_space, normalize_completion_segment
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage
 
@@ -33,6 +34,13 @@ from .naming import generate_name, should_name
 from .store import GenerationStore, Node
 
 log = get_logger(__name__)
+
+# Text opening with one of these continues the previous word rather than
+# starting a new one, so no space belongs in front of it. Mirrors the leading
+# punctuation and contraction cases in basemode.healing.
+_ATTACHES_TO_PREVIOUS_WORD_RE = re.compile(
+    r"^(?:[,.;:!?)\]}%]|'(?:s|t|re|ve|ll|d|m)\b)", re.IGNORECASE
+)
 
 
 # ---------------------------------------------------------------------------
@@ -823,11 +831,40 @@ class LoomSession:
         )
         return True
 
-    def edit_node_text(self, node_id: str, new_text: str) -> Node | None:
-        """Edit a single node segment by creating a direct forked node."""
+    def _joined_to_prefix(self, prefix: str, text: str) -> str:
+        """Restore the space a hand-written segment is missing.
+
+        Generated text arrives already healed against the prefix it continues.
+        Text typed straight into a node does not, and the space between it and
+        its parent is the one thing everybody forgets. The exceptions are the
+        same ones basemode's stream repair makes: closing punctuation and
+        contractions attach to the word before them, so " !" and " 's" are
+        never what the writer meant.
+        """
+        if not needs_leading_space(prefix, text):
+            return text
+        if _ATTACHES_TO_PREVIOUS_WORD_RE.match(text):
+            return text
+        return " " + text
+
+    def edit_node_text(
+        self, node_id: str, new_text: str, *, heal_boundary: bool = False
+    ) -> Node | None:
+        """Edit a single node segment by creating a direct forked node.
+
+        ``heal_boundary`` restores a missing space between the node and the
+        text before it. It is opt-in because the TUI's inline editor starts
+        from the node's existing text, where every boundary is already the
+        one the writer chose; a client that takes a segment fresh from the
+        user (the web tree view) wants the repair.
+        """
         node = self._store.get(node_id)
         if node is None:
             return None
+        if heal_boundary:
+            lineage = self._store.lineage(node.id)
+            prefix = "".join(step.text for step in lineage[:-1])
+            new_text = self._joined_to_prefix(prefix, new_text)
         if node.text == new_text:
             return None
         if node.parent_id is None:
@@ -855,9 +892,10 @@ class LoomSession:
         parent = self._store.get(parent_id)
         if parent is None:
             return None
+        prefix = "".join(step.text for step in self._store.lineage(parent.id))
         new_node = self._store.add_child(
             parent.id,
-            text,
+            self._joined_to_prefix(prefix, text),
             model="manual",
             strategy="manual",
             max_tokens=self.max_tokens,
@@ -865,6 +903,36 @@ class LoomSession:
         )
         self._checkout_node(new_node.id)
         return new_node
+
+    def delete_node(self, node_id: str) -> str | None:
+        """Delete ``node_id`` and everything under it, landing on its parent.
+
+        A root has no parent to land on and deleting it would take the whole
+        tree with it, so it is refused here — that is what deleting a loom
+        from the overview is for.
+        """
+        node = self._store.get(node_id)
+        if node is None or node.parent_id is None:
+            return None
+        parent_id = node.parent_id
+        if self._store.delete_subtree(node.id) <= 0:
+            return None
+        # The cursor may have been inside what just went away.
+        if self._store.get(self._current_id) is None:
+            self._checkout_node(parent_id)
+        else:
+            self._child_path = self._load_child_path(self._current_id)
+            self._selected_idx = self._child_path.get(self._current_id, 0)
+        return parent_id
+
+    def toggle_node_bookmark(self, node_id: str) -> bool | None:
+        """Toggle the bookmark on any node, not just the current one."""
+        node = self._store.get(node_id)
+        if node is None:
+            return None
+        bookmarked = not bool(node.metadata.get("bookmarked"))
+        self._store.update_metadata(node.id, {"bookmarked": bookmarked})
+        return bookmarked
 
     def update_context(self, context: str) -> None:
         node = self._store.get(self._current_id)

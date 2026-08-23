@@ -99,3 +99,112 @@ def test_edit_node_requires_a_node_id(tmp_path) -> None:
             msg = ws.receive_json()
 
     assert msg["type"] == "error"
+
+
+def test_add_node_restores_the_space_the_user_left_out(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "add_node", "parent_id": child.id, "text": "again"})
+            state = _recv_state(ws)
+
+    assert state["current_node"]["text"] == " again"
+    assert state["full_text"] == "Hello world again"
+
+
+def test_add_node_leaves_a_deliberate_boundary_alone(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            # Punctuation and a newline are joins the writer meant.
+            ws.send_json({"type": "add_node", "parent_id": child.id, "text": "!"})
+            first = _recv_state(ws)
+            ws.send_json({"type": "add_node", "parent_id": child.id, "text": "\nNext"})
+            second = _recv_state(ws)
+            ws.send_json({"type": "add_node", "parent_id": child.id, "text": "'s end"})
+            third = _recv_state(ws)
+
+    assert first["full_text"] == "Hello world!"
+    assert second["full_text"] == "Hello world\nNext"
+    assert third["full_text"] == "Hello world's end"
+
+
+def test_edit_node_restores_the_space_the_user_left_out(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "edit_node", "node_id": child.id, "text": "earth"})
+            state = _recv_state(ws)
+
+    assert state["current_node"]["text"] == " earth"
+    assert state["full_text"] == "Hello earth"
+
+
+def test_delete_node_takes_its_subtree_and_lands_on_the_parent(tmp_path) -> None:
+    store, root, child = _seed(tmp_path)
+    grandchild = store.add_child(
+        child.id, " again", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, grandchild.id)
+            ws.send_json({"type": "delete_node", "node_id": child.id})
+            state = _recv_state(ws)
+
+    assert state["current_node_id"] == root.id
+    assert store.get(child.id) is None
+    assert store.get(grandchild.id) is None
+
+
+def test_delete_node_refuses_the_root(tmp_path) -> None:
+    store, root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "delete_node", "node_id": root.id})
+            msg = ws.receive_json()
+
+    assert msg["type"] == "error"
+    assert store.get(root.id) is not None
+
+
+def test_bookmark_node_toggles_any_node_not_just_the_current_one(tmp_path) -> None:
+    store, root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "bookmark_node", "node_id": root.id})
+            _recv_state(ws)
+            assert store.get(root.id).metadata.get("bookmarked") is True
+
+            ws.send_json({"type": "bookmark_node", "node_id": root.id})
+            _recv_state(ws)
+            assert store.get(root.id).metadata.get("bookmarked") is False
+
+
+def test_bookmark_node_rejects_an_unknown_node(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "bookmark_node", "node_id": "nope"})
+            msg = ws.receive_json()
+
+    assert msg["type"] == "error"

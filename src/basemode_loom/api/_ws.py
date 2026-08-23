@@ -403,7 +403,7 @@ async def session_ws(
                     continue
                 # A no-op edit also returns None, so an unchanged tree here is
                 # success, not an error; just resend state either way.
-                session.edit_node_text(node_id, text)
+                session.edit_node_text(node_id, text, heal_boundary=True)
                 await push_state()
 
             elif msg_type == "add_node":
@@ -417,6 +417,26 @@ async def session_ws(
                     continue
                 if session.add_child_node(parent_id, text) is None:
                     await send_error(f"unknown parent node: {parent_id!r}")
+                    continue
+                await push_state()
+
+            elif msg_type == "delete_node":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("delete_node requires a node_id")
+                    continue
+                if session.delete_node(node_id) is None:
+                    await send_error(f"could not delete node: {node_id!r}")
+                    continue
+                await push_state()
+
+            elif msg_type == "bookmark_node":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("bookmark_node requires a node_id")
+                    continue
+                if session.toggle_node_bookmark(node_id) is None:
+                    await send_error(f"unknown node: {node_id!r}")
                     continue
                 await push_state()
 
