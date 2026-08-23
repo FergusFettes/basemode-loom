@@ -120,7 +120,7 @@ class ServerConfig:
     # `concurrent_generation_jobs` still caps the whole server.
     concurrent_generations_per_session: int = 3
     max_branches_per_job: int = 64
-    generation_timeout_seconds: float = 600.0
+    generation_timeout_seconds: float = 60.0
     max_output_tokens: int = 8000
     enable_docs: bool | None = None
     # Storing a provider key writes it to the machine-wide basemode auth file,
