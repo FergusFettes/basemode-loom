@@ -6,7 +6,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
-MIN_MAX_TOKENS = 10
+MIN_MAX_TOKENS = 1
 MAX_MAX_TOKENS = 8000
 MAX_BRANCHES_PER_MODEL = 64
 

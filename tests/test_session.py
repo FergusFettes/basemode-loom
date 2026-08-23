@@ -266,7 +266,7 @@ def test_set_max_tokens_clamps_low(store):
     )
     session = LoomSession(store, ch[0].id)
     session.set_max_tokens(0)
-    assert session.max_tokens == 10
+    assert session.max_tokens == 1
 
 
 def test_set_n_branches_minimum_one(store):

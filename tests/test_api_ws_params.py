@@ -168,10 +168,10 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
             assert msg["message"] == "invalid set_params"
             assert msg["fields"]["temperature"] == "must be a number between 0 and 2"
             assert (
-                msg["fields"]["max_tokens"] == "must be an integer between 10 and 8000"
+                msg["fields"]["max_tokens"] == "must be an integer between 1 and 8000"
             )
             assert msg["fields"]["rewind_split_tokens"] == "must be a boolean"
-            assert msg["fields"]["global_max_tokens"] == "must be an integer between 10 and 8000"
+            assert msg["fields"]["global_max_tokens"] == "must be an integer between 1 and 8000"
             assert msg["fields"]["global_n_branches"] == "must be an integer between 1 and 64"
             assert msg["fields"]["persist"] == "only persist=true is supported"
 
