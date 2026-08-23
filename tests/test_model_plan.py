@@ -17,7 +17,7 @@ def test_normalize_model_plan_drops_malformed_persisted_entries() -> None:
             "max_tokens": 200,
             "temperature": 0.4,
             "enabled": True,
-            "pinned_settings": True,
+            "pinned_settings": False,
         }
     ]
 
