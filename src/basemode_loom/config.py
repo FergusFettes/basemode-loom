@@ -115,6 +115,10 @@ class ServerConfig:
     max_field_bytes: int = 1024 * 1024
     max_context_tokens: int = 128_000
     concurrent_generation_jobs: int = 4
+    # Per connection, not server-wide: how many generations one client may
+    # have running at once (in different places in the tree, typically).
+    # `concurrent_generation_jobs` still caps the whole server.
+    concurrent_generations_per_session: int = 3
     max_branches_per_job: int = 64
     generation_timeout_seconds: float = 600.0
     max_output_tokens: int = 8000
@@ -264,6 +268,10 @@ def _server_environment_config() -> dict:
         "MAX_FIELD_BYTES": ("max_field_bytes", int),
         "MAX_CONTEXT_TOKENS": ("max_context_tokens", int),
         "CONCURRENT_GENERATION_JOBS": ("concurrent_generation_jobs", int),
+        "CONCURRENT_GENERATIONS_PER_SESSION": (
+            "concurrent_generations_per_session",
+            int,
+        ),
         "MAX_BRANCHES_PER_JOB": ("max_branches_per_job", int),
         "GENERATION_TIMEOUT_SECONDS": ("generation_timeout_seconds", float),
         "MAX_OUTPUT_TOKENS": ("max_output_tokens", int),

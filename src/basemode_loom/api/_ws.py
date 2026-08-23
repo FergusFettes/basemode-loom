@@ -163,7 +163,18 @@ async def session_ws(
         return
     await websocket.accept()
     session: LoomSession | None = None
-    gen_task: asyncio.Task[None] | None = None
+    # Several generations can be in flight at once, typically started from
+    # different places in the tree. `concurrent_generations_per_session` caps
+    # this connection; the server-wide `generation_gate` caps everything.
+    gen_tasks: set[asyncio.Task[None]] = set()
+
+    async def cancel_gen_tasks() -> None:
+        running = [task for task in gen_tasks if not task.done()]
+        for task in running:
+            task.cancel()
+        if running:
+            await asyncio.gather(*running, return_exceptions=True)
+        gen_tasks.clear()
 
     async def push_state() -> None:
         if session is not None:
@@ -321,9 +332,7 @@ async def session_ws(
                 if not root_id or store.get(root_id) is None:
                     await send_error(f"unknown root_id: {root_id!r}")
                     continue
-                if gen_task and not gen_task.done():
-                    gen_task.cancel()
-                    await asyncio.gather(gen_task, return_exceptions=True)
+                await cancel_gen_tasks()
                 session = LoomSession(store, root_id)
                 await push_state()
                 continue
@@ -379,8 +388,13 @@ async def session_ws(
                 await push_state()
 
             elif msg_type == "generate":
-                if gen_task and not gen_task.done():
-                    await send_error("generation already in progress")
+                gen_tasks.difference_update({task for task in gen_tasks if task.done()})
+                if len(gen_tasks) >= config.concurrent_generations_per_session:
+                    await send_error(
+                        f"{config.concurrent_generations_per_session} generations "
+                        "already running",
+                        error_type="generation_busy",
+                    )
                 else:
                     state = session.get_state()
                     branches = sum(
@@ -401,7 +415,9 @@ async def session_ws(
                             error_type="generation_limit_exceeded",
                         )
                     else:
-                        gen_task = asyncio.create_task(run_generation())
+                        task = asyncio.create_task(run_generation())
+                        gen_tasks.add(task)
+                        task.add_done_callback(gen_tasks.discard)
 
             elif msg_type == "cancel":
                 session.cancel()
@@ -500,6 +516,4 @@ async def session_ws(
     except WebSocketDisconnect:
         log.info("websocket disconnected")
     finally:
-        if gen_task and not gen_task.done():
-            gen_task.cancel()
-            await asyncio.gather(gen_task, return_exceptions=True)
+        await cancel_gen_tasks()

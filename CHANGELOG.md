@@ -8,6 +8,13 @@ under Unreleased.
 
 ### Changed
 
+- One websocket connection may now have several generations in flight at once
+  (`concurrent_generations_per_session`, default 3) instead of being locked to
+  one at a time, so a slow provider in one place in the tree no longer blocks
+  starting a continuation somewhere else. The server-wide
+  `concurrent_generation_jobs` still caps everything. Over the cap the client
+  gets a `generation_busy` error naming the limit.
+
 - Generation now saves each branch the moment it finishes and emits a
   `branch_complete` event (followed by a state push over the websocket),
   instead of holding every completion back until the slowest branch in the
