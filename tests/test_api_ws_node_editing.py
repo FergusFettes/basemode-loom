@@ -107,7 +107,25 @@ def test_remove_leading_space_updates_the_existing_node_in_place(tmp_path) -> No
     assert store.get(grandchild.id) is not None
     assert [node.id for node in store.children(root.id)] == [child.id]
     assert store.get(child.id).metadata["in_place_edits"] == [
-        {"kind": "remove_leading_space", "original": " "}
+        {"kind": "remove_leading_space", "before": " world", "after": "world"}
+    ]
+
+
+def test_add_leading_space_updates_the_existing_node_in_place(tmp_path) -> None:
+    store, root, child = _seed(tmp_path)
+    store.update_text(child.id, "world")
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "add_leading_space", "node_id": child.id})
+            state = _recv_state(ws)
+
+    assert state["current_node"]["text"] == " world"
+    assert [node.id for node in store.children(root.id)] == [child.id]
+    assert store.get(child.id).metadata["in_place_edits"] == [
+        {"kind": "add_leading_space", "before": "world", "after": " world"}
     ]
 
 

@@ -482,6 +482,14 @@ async def session_ws(
                 session.remove_leading_space(node_id)
                 await push_state()
 
+            elif msg_type == "add_leading_space":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("add_leading_space requires a node_id")
+                    continue
+                session.add_leading_space(node_id)
+                await push_state()
+
             elif msg_type == "add_node":
                 parent_id = data.get("parent_id")
                 text = data.get("text")

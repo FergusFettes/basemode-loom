@@ -504,6 +504,7 @@ guards. Provider exception details are not returned to clients.
 {"type": "edit", "original": "...", "edited": "..."}
 {"type": "edit_node", "node_id": "...", "text": "..."}
 {"type": "remove_leading_space", "node_id": "..."}
+{"type": "add_leading_space", "node_id": "..."}
 {"type": "add_node", "parent_id": "...", "text": "..."}
 {"type": "delete_node", "node_id": "..."}
 {"type": "bookmark_node", "node_id": "..."}
@@ -528,7 +529,8 @@ with a `state` message.
 `remove_leading_space` is the intentionally narrow exception to forked
 editing: it removes exactly one opening ASCII space from an existing node,
 without changing its identity, descendants, or sibling position. It records
-the correction in `metadata.in_place_edits`.
+the correction's before/after text in `metadata.in_place_edits`.
+`add_leading_space` provides the inverse correction with the same guarantees.
 
 `delete_node` removes a node and its whole subtree, landing the cursor on the
 parent; it refuses a root, which would take the tree with it. `bookmark_node`

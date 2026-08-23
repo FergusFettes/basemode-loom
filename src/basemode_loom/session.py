@@ -1015,10 +1015,25 @@ class LoomSession:
         node = self._store.get(node_id)
         if node is None or not node.text.startswith(" "):
             return None
-        updated = self._store.update_text(node.id, node.text[1:])
+        return self._record_in_place_edit(
+            node, kind="remove_leading_space", text=node.text[1:]
+        )
+
+    def add_leading_space(self, node_id: str) -> Node | None:
+        """Add one leading space to a node without forking it."""
+        node = self._store.get(node_id)
+        if node is None or node.text.startswith(" "):
+            return None
+        return self._record_in_place_edit(
+            node, kind="add_leading_space", text=f" {node.text}"
+        )
+
+    def _record_in_place_edit(self, node: Node, *, kind: str, text: str) -> Node:
+        """Persist a narrow manual correction with its before/after text."""
+        updated = self._store.update_text(node.id, text)
         edits = node.metadata.get("in_place_edits", [])
         history = list(edits) if isinstance(edits, list) else []
-        history.append({"kind": "remove_leading_space", "original": " "})
+        history.append({"kind": kind, "before": node.text, "after": text})
         return self._store.update_metadata(
             updated.id, {"in_place_edits": history}
         )
