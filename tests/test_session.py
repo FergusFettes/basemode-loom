@@ -1112,6 +1112,12 @@ async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch
     assert usage["total_tokens"] == 19
     assert usage["cost_usd"] == pytest.approx(0.00123)
     assert usage["pricing_available"] is True
+    timing = children[0].metadata["timing"]
+    assert timing["ttft_ms"] >= 0
+    assert timing["elapsed_ms"] >= timing["ttft_ms"]
+    assert timing["streaming_ms"] >= 0
+    assert timing["completion_tokens"] == 7
+    assert timing["completion_tokens_per_second"] >= 0
 
     state = session.get_state()
     assert state.tree_total_tokens == 19

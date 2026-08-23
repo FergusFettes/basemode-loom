@@ -11,6 +11,7 @@ import asyncio
 import difflib
 import random
 import re
+import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field, replace
 from itertools import pairwise
@@ -67,6 +68,38 @@ def _boundary_metadata(
     if raw_head == streamed_head == head:
         return {}
     return {"boundary": {"raw": raw_head, "streamed": streamed_head}}
+
+
+def _timing_metadata(
+    *,
+    started_at: float | None,
+    first_token_at: float | None,
+    finished_at: float | None,
+    completion_tokens: int,
+) -> dict[str, float | int]:
+    """Return durable per-branch latency and throughput measurements.
+
+    The clock is deliberately monotonic: these numbers describe an individual
+    provider request and must not be affected by wall-clock adjustments.  A
+    branch that becomes a node always produced at least one streamed chunk, but
+    keep the helper tolerant of incomplete timing data for future callers.
+    """
+    if started_at is None or first_token_at is None or finished_at is None:
+        return {}
+    ttft_ms = max(0.0, (first_token_at - started_at) * 1000)
+    elapsed_ms = max(0.0, (finished_at - started_at) * 1000)
+    streaming_ms = max(0.0, (finished_at - first_token_at) * 1000)
+    result: dict[str, float | int] = {
+        "ttft_ms": round(ttft_ms, 3),
+        "elapsed_ms": round(elapsed_ms, 3),
+        "streaming_ms": round(streaming_ms, 3),
+        "completion_tokens": completion_tokens,
+    }
+    if completion_tokens > 0 and streaming_ms > 0:
+        result["completion_tokens_per_second"] = round(
+            completion_tokens / (streaming_ms / 1000), 3
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -532,6 +565,12 @@ class LoomSession:
         # usage_capture.py) — preferred over the local tokenizer estimate in
         # _estimate_usage when the provider actually returned usage.
         usage_events: list[list[dict]] = [[] for _ in range(len(branch_plan))]
+        # Per-branch monotonic timestamps.  These belong on the node, rather
+        # than in an aggregate health log, because sibling branches often see
+        # very different provider latency and output speed.
+        started_at: list[float | None] = [None] * len(branch_plan)
+        first_token_at: list[float | None] = [None] * len(branch_plan)
+        finished_at: list[float | None] = [None] * len(branch_plan)
         branch_errors: dict[int, ProviderDiagnostic] = {}
         saved: dict[int, tuple[str, Node]] = {}
         cancelled = False
@@ -566,6 +605,9 @@ class LoomSession:
                 parent_id=source_node_id,
                 raw_heads=[raw_heads[slot_idx]],
                 usage_events=[usage_events[slot_idx]],
+                timings=[
+                    (started_at[slot_idx], first_token_at[slot_idx], finished_at[slot_idx])
+                ],
             )[0]
             saved[slot_idx] = (raw, node)
             return node
@@ -584,6 +626,7 @@ class LoomSession:
                 usage_events[slot_idx] = events
 
             try:
+                started_at[slot_idx] = time.perf_counter()
                 async for tok in continue_text(
                     prefix,
                     resolve_model_id(plan.model),
@@ -601,6 +644,8 @@ class LoomSession:
                 ):
                     if cancel_token.is_set():
                         break
+                    if first_token_at[slot_idx] is None:
+                        first_token_at[slot_idx] = time.perf_counter()
                     await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
                 diagnostic = provider_diagnostic(exc)
@@ -620,6 +665,7 @@ class LoomSession:
                 )
                 await queue.put(("error", slot_idx, model_idx, branch_idx, diagnostic))
             finally:
+                finished_at[slot_idx] = time.perf_counter()
                 await queue.put(("done", slot_idx, model_idx, branch_idx, None))
 
         tasks = [
@@ -723,12 +769,20 @@ class LoomSession:
         parent_id: str,
         raw_heads: list[str | None] | None = None,
         usage_events: list[list[dict]] | None = None,
+        timings: list[tuple[float | None, float | None, float | None]] | None = None,
     ) -> list[Node]:
         new_children: list[Node] = []
         heads = raw_heads or [None] * len(completions)
         events = usage_events or [[] for _ in completions]
-        for (model_idx, branch_idx, plan), completion, raw_head, branch_events in zip(
-            branch_plan, completions, heads, events, strict=False
+        branch_timings = timings or [(None, None, None)] * len(completions)
+        for (
+            (model_idx, branch_idx, plan),
+            completion,
+            raw_head,
+            branch_events,
+            (started, first_token, finished),
+        ) in zip(
+            branch_plan, completions, heads, events, branch_timings, strict=False
         ):
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
@@ -739,6 +793,12 @@ class LoomSession:
                 prefix,
                 normalized,
                 usage_events=branch_events,
+            )
+            timing = _timing_metadata(
+                started_at=started,
+                first_token_at=first_token,
+                finished_at=finished,
+                completion_tokens=int(usage.get("completion_tokens", 0) or 0),
             )
             node = self._store.add_child(
                 parent_id,
@@ -751,6 +811,7 @@ class LoomSession:
                     "model_idx": model_idx,
                     "model_branch_index": branch_idx,
                     "usage": usage,
+                    "timing": timing,
                     **_boundary_metadata(raw_head, completion, normalized),
                 },
             )
