@@ -4,7 +4,7 @@ from collections import Counter
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictInt
 
 from ..catalog import FACETS, TreeCatalogEntry, build_tree_catalog
 from ..config import Config, config_to_dict
@@ -17,6 +17,7 @@ from ..credentials import (
 )
 from ..graph_stats import analyze_subtree
 from ..images import MAX_PROMPT_CHARS, ImageGenerationError, generate_branch_image
+from ..model_ratings import get_rating, is_valid_rating, list_ratings, set_rating
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -551,6 +552,66 @@ def list_models(
             status_code=500,
             detail={"code": "model_discovery_failed"},
         ) from exc
+
+
+class ModelRatingBody(BaseModel):
+    model: str
+    # Strict, so JSON `true` is rejected rather than coerced to a thumbs up.
+    rating: StrictInt | None = Field(
+        default=None,
+        description="1 for thumbs up, -1 for thumbs down, null to clear.",
+    )
+
+
+class ModelRating(BaseModel):
+    model: str
+    rating: int | None
+
+
+class ModelRatingListResponse(BaseModel):
+    ratings: dict[str, int]
+    writable: bool
+
+
+@router.get("/models/ratings", response_model=ModelRatingListResponse)
+def list_model_ratings(request: Request) -> ModelRatingListResponse:
+    """Every model this user has rated, keyed by resolved model ID."""
+    return ModelRatingListResponse(
+        ratings=list_ratings(),
+        writable=_get_config(request).server.rating_writes_enabled(),
+    )
+
+
+@router.put("/models/rating", response_model=ModelRating)
+def store_model_rating(body: ModelRatingBody, request: Request) -> ModelRating:
+    """Rate a model up or down, or clear its rating with `null`.
+
+    The model ID travels in the body rather than the path because model IDs
+    contain slashes (`anthropic/claude-opus-5`), which a path parameter would
+    force every caller to encode. The rating reorders `GET /api/models`; it
+    changes nothing about generation.
+    """
+    if not _get_config(request).server.rating_writes_enabled():
+        raise HTTPException(status_code=403, detail={"code": "rating_writes_disabled"})
+    model = body.model.strip()
+    if not model:
+        raise HTTPException(status_code=422, detail={"code": "empty_model"})
+    if not is_valid_rating(body.rating):
+        raise HTTPException(status_code=422, detail={"code": "invalid_rating"})
+
+    resolved, rating = set_rating(model, body.rating)
+    return ModelRating(model=resolved, rating=rating)
+
+
+@router.get("/models/rating", response_model=ModelRating)
+def read_model_rating(
+    model: Annotated[str, Query(description="Model ID to look up")],
+) -> ModelRating:
+    """This user's thumb for one model, without listing every rating."""
+    resolved = model.strip()
+    if not resolved:
+        raise HTTPException(status_code=422, detail={"code": "empty_model"})
+    return ModelRating(model=resolved, rating=get_rating(resolved))
 
 
 @router.post("/import", status_code=201)

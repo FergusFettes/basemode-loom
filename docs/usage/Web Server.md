@@ -300,6 +300,63 @@ allow_credential_writes = true
 
 or `BASEMODE_LOOM_ALLOW_CREDENTIAL_WRITES=true`.
 
+### Model ratings
+
+A user can rate a model up or down. Ratings are stored in basemode's own
+config file (`~/.config/basemode/auth.json`) beside keys and pinned
+strategies, not in the corpus database — a thumb belongs to the user, so it
+survives a `--db` swap, is never exported with a tree, and is shared with the
+`basemode` CLI and the loom TUI.
+
+A rating only reorders listings: `GET /api/models` sorts thumbs-up models
+first and thumbs-down models last, and every entry it returns carries a
+`rating` field (`1`, `-1`, or `null`). Nothing is hidden, and generation is
+unaffected.
+
+```
+GET /api/models/ratings
+```
+
+```json
+{"ratings": {"openai/gpt-4o-mini": 1, "openai/gpt-4o": -1}, "writable": true}
+```
+
+```
+GET /api/models/rating?model=gpt-4o-mini
+```
+
+```json
+{"model": "gpt-4o-mini", "rating": 1}
+```
+
+```
+PUT /api/models/rating
+Content-Type: application/json
+
+{"model": "gpt-4o-mini", "rating": 1}
+```
+
+`rating` is `1`, `-1`, or `null` to clear; anything else is `422
+invalid_rating`, and a blank model is `422 empty_model`. The model ID travels
+in the body because model IDs contain slashes (`anthropic/claude-opus-5`),
+which a path parameter would force every caller to encode. The response
+reports the resolved ID the thumb was stored under (`gpt-4o-mini` →
+`openai/gpt-4o-mini`), normalized exactly as generation normalizes it, so the
+same model rated by either name is one thumb.
+
+Ratings are preferences rather than secrets, but they are still the
+operator's preferences in a machine-wide file, so writes follow the same
+default as key writes: **disabled whenever `production` is on**, with `PUT`
+returning `403 rating_writes_disabled` and `GET` reporting
+`"writable": false`. Override with:
+
+```toml
+[server]
+allow_rating_writes = true
+```
+
+or `BASEMODE_LOOM_ALLOW_RATING_WRITES=true`.
+
 ## WebSocket API
 
 For live interactive sessions, connect to the WebSocket endpoint:

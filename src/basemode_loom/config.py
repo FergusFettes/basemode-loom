@@ -125,10 +125,19 @@ class ServerConfig:
     # writes default off whenever production is on. Set explicitly to override
     # in either direction.
     allow_credential_writes: bool | None = None
+    # Model ratings land in the same machine-wide basemode config file. They
+    # are preferences rather than secrets, but they are still the operator's
+    # preferences, so writes follow the same production default.
+    allow_rating_writes: bool | None = None
 
     def credential_writes_enabled(self) -> bool:
         if self.allow_credential_writes is not None:
             return self.allow_credential_writes
+        return not self.production
+
+    def rating_writes_enabled(self) -> bool:
+        if self.allow_rating_writes is not None:
+            return self.allow_rating_writes
         return not self.production
 
 
@@ -260,6 +269,7 @@ def _server_environment_config() -> dict:
         "MAX_OUTPUT_TOKENS": ("max_output_tokens", int),
         "ENABLE_DOCS": ("enable_docs", _parse_bool),
         "ALLOW_CREDENTIAL_WRITES": ("allow_credential_writes", _parse_bool),
+        "ALLOW_RATING_WRITES": ("allow_rating_writes", _parse_bool),
     }
     server: dict = {}
     for suffix, (key, parser) in parsers.items():
