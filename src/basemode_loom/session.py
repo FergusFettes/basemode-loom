@@ -651,6 +651,14 @@ class LoomSession:
     # --- Editing ---
 
     def apply_edit(self, original: str, edited: str) -> Node | None:
+        """Rewrite the current lineage to ``edited``, forking where it changed.
+
+        Each node whose own text the edit touched is replaced by a new sibling;
+        everything below the last of those -- the rest of the lineage and every
+        other branch hanging off it -- is moved onto the rewritten node, so the
+        pre-edit node is left holding just its old text. Returns the node the
+        session now sits on, whose full text is ``edited``.
+        """
         if original == edited:
             return None
 
@@ -693,14 +701,26 @@ class LoomSession:
         for b in boundaries:
             edit_pos_of.setdefault(b, b)
 
+        def segment_of(idx: int) -> str:
+            return edited[
+                edit_pos_of[seg_starts[idx]] : edit_pos_of[seg_starts[idx + 1]]
+            ]
+
+        # Only the nodes whose own text actually changed need rewriting. Every
+        # node below the last of those is untouched by the edit, so it keeps
+        # its identity and rides along on the moved subtree instead of being
+        # duplicated onto the new branch.
+        last_changed_idx = fork_idx
+        for idx in range(fork_idx, len(lineage)):
+            if segment_of(idx) != lineage[idx].text:
+                last_changed_idx = idx
+
         prev_parent_id: str | None = lineage[fork_idx].parent_id
         last_new_node: Node | None = None
 
-        for idx in range(fork_idx, len(lineage)):
+        for idx in range(fork_idx, last_changed_idx + 1):
             node = lineage[idx]
-            new_seg = edited[
-                edit_pos_of[seg_starts[idx]] : edit_pos_of[seg_starts[idx + 1]]
-            ]
+            new_seg = segment_of(idx)
             if node.parent_id is None:
                 new_node = self._store.create_root(
                     new_seg, metadata={"source": "edited"}
@@ -720,24 +740,33 @@ class LoomSession:
         if last_new_node is None:
             return None
 
-        # The rewritten lineage stops at the current node, so its children --
-        # every continuation generated from here -- would be stranded on the
-        # pre-edit copy. Carry them over to the new tip.
-        self._store.move_children(lineage[-1].id, last_new_node.id)
+        # Everything hanging off the last rewritten node -- the rest of the
+        # lineage plus every other branch -- moves across, so the edited node
+        # keeps its descendants and the pre-edit node is left holding only its
+        # old text.
+        self._store.move_children(lineage[last_changed_idx].id, last_new_node.id)
+
+        # The current node only moves if it was itself rewritten; otherwise it
+        # came along untouched under the new branch.
+        current = (
+            last_new_node
+            if last_changed_idx == len(lineage) - 1
+            else lineage[-1]
+        )
 
         # Point the checked-out path at the new chain; without this the store
         # still walks down the pre-edit branch and the edit looks like it was
         # dropped as soon as anything re-derives the path from those flags.
-        for parent, child in pairwise(self._store.lineage(last_new_node.id)):
+        for parent, child in pairwise(self._store.lineage(current.id)):
             siblings = self._store.children(parent.id)
             self._store.set_checked_out_child(parent.id, child.id)
             self._child_path[parent.id] = siblings.index(child)
 
-        self._store.set_active_node(last_new_node.id)
-        self._current_id = last_new_node.id
+        self._store.set_active_node(current.id)
+        self._current_id = current.id
         self._child_path.update(self._load_child_path(self._current_id))
         self._selected_idx = self._child_path.get(self._current_id, 0)
-        return last_new_node
+        return current
 
     def truncate_selected_child(self, char_pos: int) -> Node | None:
         """Create a sibling with the selected child's text truncated at char_pos and navigate into it."""

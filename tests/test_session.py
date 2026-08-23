@@ -355,6 +355,46 @@ def test_apply_edit_forks_at_changed_segment(store):
     assert store.full_text(new_node.id) == "Hello earth again"
 
 
+def test_apply_edit_keeps_unchanged_nodes_below_the_edit(store):
+    """A mid-lineage edit rewrites only the node it touched.
+
+    A -> [B, C, D] becomes [A, A'] with A' owning B, C and D outright: the
+    nodes below the edit keep their identity rather than being duplicated
+    onto the new branch.
+    """
+    kwargs = dict(model="m", strategy="s", max_tokens=10, temperature=0.9)
+    root = store.create_root("ROOT")
+    a = store.add_child(root.id, " A\n", **kwargs)
+    b = store.add_child(a.id, " B", **kwargs)
+    c = store.add_child(a.id, " C", **kwargs)
+    d = store.add_child(a.id, " D", **kwargs)
+    e = store.add_child(b.id, " E", **kwargs)
+    store.set_checked_out_child(root.id, a.id)
+    store.set_checked_out_child(a.id, b.id)
+
+    # Current node is B; the edit lands in A's segment, one node above it.
+    session = LoomSession(store, b.id)
+    current = session.apply_edit("ROOT A\n B", "ROOT A B")
+    assert current is not None
+
+    rewritten = [node for node in store.children(root.id) if node.id != a.id]
+    assert len(rewritten) == 1
+    new_a = rewritten[0]
+    assert new_a.text == " A"
+
+    # B, C and D moved wholesale -- no second copy of B anywhere.
+    assert [node.id for node in store.children(new_a.id)] == [b.id, c.id, d.id]
+    assert store.children(a.id) == []
+    assert [node.id for node in store.children(b.id)] == [e.id]
+
+    # The session stays on B, now reached through the rewritten A.
+    assert current.id == b.id
+    assert session._current_id == b.id
+    assert store.full_text(b.id) == "ROOT A B"
+    assert store.get_checked_out_child_id(root.id) == new_a.id
+    assert store.get_checked_out_child_id(new_a.id) == b.id
+
+
 def test_apply_edit_checks_out_the_new_branch(store):
     _, ch1 = store.save_continuations(
         "Hello", [" world\n"], model="m", strategy="s", max_tokens=10, temperature=0.9

@@ -8,9 +8,11 @@ under Unreleased.
 
 ### Fixed
 
-- Editing text now checks out the rewritten branch and carries the edited
-  node's children across to it, instead of leaving the checked-out path on the
-  pre-edit nodes and stranding their continuations.
+- Editing text now checks out the rewritten branch and moves the edited node's
+  whole subtree across to it, instead of leaving the checked-out path on the
+  pre-edit nodes and stranding their continuations. A mid-lineage edit rewrites
+  only the nodes whose own text changed; the nodes below keep their identity
+  rather than being duplicated onto the new branch.
 
 ## 0.5.3 - 2026-08-22
 
