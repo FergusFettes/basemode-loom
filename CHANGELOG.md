@@ -6,6 +6,12 @@ under Unreleased.
 
 ## Unreleased
 
+### Fixed
+
+- Editing text now checks out the rewritten branch and carries the edited
+  node's children across to it, instead of leaving the checked-out path on the
+  pre-edit nodes and stranding their continuations.
+
 ## 0.5.3 - 2026-08-22
 
 ### Added

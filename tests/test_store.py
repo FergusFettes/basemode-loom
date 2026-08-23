@@ -380,3 +380,49 @@ def _insert_test_node(store: GenerationStore, node_id: str) -> None:
             tree_id=node_id,
         )
     )
+
+
+def test_move_children_reparents_and_keeps_the_checked_out_pointer(store):
+    root = store.create_root("root")
+    old = store.add_child(
+        root.id, " old", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    new = store.add_child(
+        root.id, " new", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    first = store.add_child(
+        old.id, " a", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    second = store.add_child(
+        old.id, " b", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    store.set_checked_out_child(old.id, second.id)
+
+    assert store.move_children(old.id, new.id) == 2
+    assert [node.id for node in store.children(new.id)] == [first.id, second.id]
+    assert store.children(old.id) == []
+    assert store.get_checked_out_child_id(new.id) == second.id
+    assert store.full_text(second.id) == "root new b"
+
+
+def test_move_children_rejects_moving_onto_an_ancestor(store):
+    root = store.create_root("root")
+    child = store.add_child(
+        root.id, " child", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    store.add_child(
+        child.id, " leaf", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    with pytest.raises(ValueError):
+        store.move_children(child.id, root.id)
+
+
+def test_move_children_with_no_children_is_a_noop(store):
+    root = store.create_root("root")
+    empty = store.add_child(
+        root.id, " empty", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    sibling = store.add_child(
+        root.id, " sibling", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    assert store.move_children(empty.id, sibling.id) == 0

@@ -1008,6 +1008,43 @@ class GenerationStore:
             ).fetchall()
         return [self._node(row) for row in rows]
 
+    def move_children(self, from_parent_id: str, to_parent_id: str) -> int:
+        """Reparent every child of ``from_parent_id`` onto ``to_parent_id``.
+
+        Used when a node is replaced by a rewritten sibling (see
+        :meth:`LoomSession.apply_edit`): the continuations hanging off the old
+        text have to follow the edit, or the edited branch becomes a dead end.
+        Returns the number of children moved.
+        """
+        source = self.get(from_parent_id)
+        target = self.get(to_parent_id)
+        if source is None:
+            raise KeyError(f"unknown node: {from_parent_id}")
+        if target is None:
+            raise KeyError(f"unknown node: {to_parent_id}")
+        if source.id == target.id:
+            return 0
+        if any(node.id == target.id for node in self.lineage(source.id)):
+            raise ValueError(f"{to_parent_id!r} is an ancestor of {from_parent_id!r}")
+
+        moved = [child.id for child in self.children(source.id)]
+        if not moved:
+            return 0
+        # A checked-out child coming across wins the destination's pointer: it
+        # is the path the caller was standing on.
+        incoming_checked_out = self.get_checked_out_child_id(source.id)
+        with closing(self.connect()) as conn, conn:
+            conn.executemany(
+                "UPDATE nodes SET parent_id = ? WHERE id = ?",
+                [(target.id, child_id) for child_id in moved],
+            )
+            if incoming_checked_out is not None:
+                conn.execute(
+                    "UPDATE nodes SET checked_out = 0 WHERE parent_id = ? AND id != ?",
+                    (target.id, incoming_checked_out),
+                )
+        return len(moved)
+
     def set_checked_out_child(self, parent_id: str, child_id: str) -> None:
         parent = self.get(parent_id)
         child = self.get(child_id)

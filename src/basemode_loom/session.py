@@ -717,11 +717,26 @@ class LoomSession:
             prev_parent_id = new_node.id
             last_new_node = new_node
 
-        if last_new_node:
-            self._store.set_active_node(last_new_node.id)
-            self._current_id = last_new_node.id
-            self._selected_idx = 0
-            self._child_path = self._load_child_path(self._current_id)
+        if last_new_node is None:
+            return None
+
+        # The rewritten lineage stops at the current node, so its children --
+        # every continuation generated from here -- would be stranded on the
+        # pre-edit copy. Carry them over to the new tip.
+        self._store.move_children(lineage[-1].id, last_new_node.id)
+
+        # Point the checked-out path at the new chain; without this the store
+        # still walks down the pre-edit branch and the edit looks like it was
+        # dropped as soon as anything re-derives the path from those flags.
+        for parent, child in pairwise(self._store.lineage(last_new_node.id)):
+            siblings = self._store.children(parent.id)
+            self._store.set_checked_out_child(parent.id, child.id)
+            self._child_path[parent.id] = siblings.index(child)
+
+        self._store.set_active_node(last_new_node.id)
+        self._current_id = last_new_node.id
+        self._child_path.update(self._load_child_path(self._current_id))
+        self._selected_idx = self._child_path.get(self._current_id, 0)
         return last_new_node
 
     def truncate_selected_child(self, char_pos: int) -> Node | None:

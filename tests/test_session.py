@@ -355,6 +355,52 @@ def test_apply_edit_forks_at_changed_segment(store):
     assert store.full_text(new_node.id) == "Hello earth again"
 
 
+def test_apply_edit_checks_out_the_new_branch(store):
+    _, ch1 = store.save_continuations(
+        "Hello", [" world\n"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    root = store.root(ch1[0].id)
+    store.set_checked_out_child(root.id, ch1[0].id)
+    session = LoomSession(store, ch1[0].id)
+    new_node = session.apply_edit(store.full_text(ch1[0].id), "Hello world")
+    assert new_node is not None
+
+    # The checked-out path has to follow the edit, not stay on the old text.
+    assert store.get_checked_out_child_id(root.id) == new_node.id
+    child_ids = [node.id for node in store.children(root.id)]
+    assert session._child_path[root.id] == child_ids.index(new_node.id)
+    # ...including for a session rebuilt from the store (a page reload).
+    reloaded = LoomSession(store, root.id)
+    assert reloaded._current_id == new_node.id
+    assert reloaded.get_state().full_text == "Hello world"
+
+
+def test_apply_edit_moves_children_onto_the_rewritten_node(store):
+    _, ch1 = store.save_continuations(
+        "Hello", [" world\n"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    _, ch2 = store.save_continuations(
+        "",
+        [" again", " once more"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+        parent_id=ch1[0].id,
+    )
+    store.set_checked_out_child(ch1[0].id, ch2[1].id)
+    session = LoomSession(store, ch1[0].id)
+    new_node = session.apply_edit(store.full_text(ch1[0].id), "Hello world")
+    assert new_node is not None
+
+    moved = store.children(new_node.id)
+    assert [node.id for node in moved] == [ch2[0].id, ch2[1].id]
+    assert store.children(ch1[0].id) == []
+    # The continuation that was checked out stays checked out after the move.
+    assert store.get_checked_out_child_id(new_node.id) == ch2[1].id
+    assert store.full_text(ch2[1].id) == "Hello world once more"
+
+
 def test_edit_node_text_updates_selected_node_segment(store):
     _, ch = store.save_continuations(
         "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9
