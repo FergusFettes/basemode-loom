@@ -426,3 +426,14 @@ def test_move_children_with_no_children_is_a_noop(store):
         root.id, " sibling", model="m", strategy="s", max_tokens=5, temperature=0.7
     )
     assert store.move_children(empty.id, sibling.id) == 0
+
+
+def test_update_text_rewrites_a_node_in_place(store):
+    root = store.create_root("root")
+    child = store.add_child(
+        root.id, " child", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    updated = store.update_text(root.id, "ROOT")
+    assert updated.text == "ROOT"
+    assert updated.id == root.id
+    assert store.full_text(child.id) == "ROOT child"

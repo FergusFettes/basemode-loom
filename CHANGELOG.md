@@ -8,6 +8,10 @@ under Unreleased.
 
 ### Fixed
 
+- Editing a root node's text no longer starts a whole new tree containing only
+  the current path, stranding every other branch on the old tree. A root has no
+  sibling position to fork into, so its text is now rewritten in place.
+
 - Editing text now checks out the rewritten branch and moves the edited node's
   whole subtree across to it, instead of leaving the checked-out path on the
   pre-edit nodes and stranding their continuations. A mid-lineage edit rewrites

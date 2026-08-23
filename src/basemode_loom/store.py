@@ -553,6 +553,22 @@ class GenerationStore:
             raise KeyError(f"unknown root node for tree: {node.tree_id}")
         return root
 
+    def update_text(self, node_id: str, text: str) -> Node:
+        """Rewrite a node's text in place.
+
+        Used for roots, which have no sibling position to fork into: replacing
+        one would mean starting a whole new tree and leaving every branch
+        behind on the old one.
+        """
+        node = self.get(node_id)
+        if node is None:
+            raise KeyError(f"unknown node: {node_id}")
+        with closing(self.connect()) as conn, conn:
+            conn.execute("UPDATE nodes SET text = ? WHERE id = ?", (text, node_id))
+        updated = self.get(node_id)
+        assert updated is not None
+        return updated
+
     def update_metadata(self, node_id: str, metadata: dict[str, Any]) -> Node:
         node = self.get(node_id)
         if node is None:

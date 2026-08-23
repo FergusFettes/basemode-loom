@@ -722,9 +722,10 @@ class LoomSession:
             node = lineage[idx]
             new_seg = segment_of(idx)
             if node.parent_id is None:
-                new_node = self._store.create_root(
-                    new_seg, metadata={"source": "edited"}
-                )
+                # A root has no sibling position to fork into: create_root
+                # would start a whole new tree and leave every branch behind on
+                # the old one, so a root's text is rewritten in place.
+                new_node = self._store.update_text(node.id, new_seg)
             else:
                 new_node = self._store.add_child(
                     prev_parent_id,  # type: ignore[arg-type]
@@ -827,7 +828,8 @@ class LoomSession:
         if node.text == new_text:
             return None
         if node.parent_id is None:
-            new_node = self._store.create_root(new_text, metadata={"source": "edited"})
+            # See apply_edit: forking a root would strand the tree behind it.
+            new_node = self._store.update_text(node.id, new_text)
         else:
             new_node = self._store.add_child(
                 node.parent_id,

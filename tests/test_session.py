@@ -395,6 +395,36 @@ def test_apply_edit_keeps_unchanged_nodes_below_the_edit(store):
     assert store.get_checked_out_child_id(new_a.id) == b.id
 
 
+def test_apply_edit_of_the_root_stays_in_the_same_tree(store):
+    """Editing root text must not spawn a new tree and strand every branch.
+
+    A root has no sibling position, so forking it meant calling create_root --
+    which starts a fresh tree containing only a copy of the current path.
+    """
+    kwargs = dict(model="m", strategy="s", max_tokens=10, temperature=0.9)
+    root = store.create_root("This is a small test tree")
+    kept = store.add_child(root.id, " one", **kwargs)
+    sibling = store.add_child(root.id, " two", **kwargs)
+    leaf = store.add_child(kept.id, " leaf", **kwargs)
+    store.set_checked_out_child(root.id, kept.id)
+    store.set_checked_out_child(kept.id, leaf.id)
+
+    session = LoomSession(store, leaf.id)
+    current = session.apply_edit(
+        "This is a small test tree one leaf", "This is a small test doc one leaf"
+    )
+    assert current is not None
+
+    assert store.root(session._current_id).id == root.id
+    assert store.get(root.id).text == "This is a small test doc"
+    assert len(store.roots(archived=None)) == 1
+    # Every branch is still hanging off the root, and nothing was duplicated.
+    assert [node.id for node in store.children(root.id)] == [kept.id, sibling.id]
+    assert [node.id for node in store.children(kept.id)] == [leaf.id]
+    assert session._current_id == leaf.id
+    assert store.full_text(leaf.id) == "This is a small test doc one leaf"
+
+
 def test_apply_edit_checks_out_the_new_branch(store):
     _, ch1 = store.save_continuations(
         "Hello", [" world\n"], model="m", strategy="s", max_tokens=10, temperature=0.9
