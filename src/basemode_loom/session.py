@@ -21,7 +21,7 @@ from basemode.detect import detect_strategy
 from basemode.healing import needs_leading_space, normalize_completion_segment
 from basemode.health import record_outcome
 from basemode.keys import get_default_model
-from basemode.usage import estimate_usage
+from basemode.usage import estimate_usage, usage_from_events
 
 from .diagnostics import (
     ProviderDiagnostic,
@@ -528,6 +528,10 @@ class LoomSession:
         # touched it. Kept per branch so a seam defect can be attributed to
         # the model or to the repair long after the stream is gone.
         raw_heads: list[str | None] = [None] * len(branch_plan)
+        # Provider-reported usage payloads per branch (see basemode's
+        # usage_capture.py) — preferred over the local tokenizer estimate in
+        # _estimate_usage when the provider actually returned usage.
+        usage_events: list[list[dict]] = [[] for _ in range(len(branch_plan))]
         branch_errors: dict[int, ProviderDiagnostic] = {}
         saved: dict[int, tuple[str, Node]] = {}
         cancelled = False
@@ -561,6 +565,7 @@ class LoomSession:
                 [raw],
                 parent_id=source_node_id,
                 raw_heads=[raw_heads[slot_idx]],
+                usage_events=[usage_events[slot_idx]],
             )[0]
             saved[slot_idx] = (raw, node)
             return node
@@ -574,6 +579,9 @@ class LoomSession:
         ) -> None:
             def capture_head(head: str, slot_idx: int = slot_idx) -> None:
                 raw_heads[slot_idx] = head
+
+            def capture_usage(events: list[dict], slot_idx: int = slot_idx) -> None:
+                usage_events[slot_idx] = events
 
             try:
                 async for tok in continue_text(
@@ -589,6 +597,7 @@ class LoomSession:
                     # is recorded here instead of once at each layer.
                     record_health=False,
                     on_raw_head=capture_head,
+                    on_usage=capture_usage,
                 ):
                     if cancel_token.is_set():
                         break
@@ -713,11 +722,13 @@ class LoomSession:
         *,
         parent_id: str,
         raw_heads: list[str | None] | None = None,
+        usage_events: list[list[dict]] | None = None,
     ) -> list[Node]:
         new_children: list[Node] = []
         heads = raw_heads or [None] * len(completions)
-        for (model_idx, branch_idx, plan), completion, raw_head in zip(
-            branch_plan, completions, heads, strict=False
+        events = usage_events or [[] for _ in completions]
+        for (model_idx, branch_idx, plan), completion, raw_head, branch_events in zip(
+            branch_plan, completions, heads, events, strict=False
         ):
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
@@ -727,6 +738,7 @@ class LoomSession:
                 strategy_name,
                 prefix,
                 normalized,
+                usage_events=branch_events,
             )
             node = self._store.add_child(
                 parent_id,
@@ -1205,8 +1217,33 @@ class LoomSession:
         return parse_model_plan(raw_plan)
 
     def _estimate_usage(
-        self, model: str, strategy: str, prefix: str, completion: str
+        self,
+        model: str,
+        strategy: str,
+        prefix: str,
+        completion: str,
+        *,
+        usage_events: list[dict] | None = None,
     ) -> dict[str, Any]:
+        # Prefer the provider's own reported usage (real request/response
+        # counts, including hidden reasoning tokens and any aborted
+        # rewind-retry request) over a local tokenizer estimate run on the
+        # healed completion text, which can only see what basemode kept.
+        if usage_events:
+            try:
+                usage = usage_from_events(model, usage_events)
+            except Exception:
+                usage = None
+            if usage is not None:
+                return {
+                    "model": usage.model,
+                    "prompt_tokens": int(usage.prompt_tokens),
+                    "completion_tokens": int(usage.completion_tokens),
+                    "total_tokens": int(usage.total_tokens),
+                    "cost_usd": float(usage.cost_usd or 0.0),
+                    "pricing_available": bool(usage.pricing_available),
+                    "is_estimate": False,
+                }
         try:
             prompt, messages = _usage_prompt(model, prefix, strategy)
             usage = estimate_usage(
@@ -1225,6 +1262,7 @@ class LoomSession:
             "total_tokens": int(usage.total_tokens),
             "cost_usd": float(usage.cost_usd or 0.0),
             "pricing_available": bool(usage.pricing_available),
+            "is_estimate": True,
         }
 
     def _tree_usage(
