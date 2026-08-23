@@ -702,6 +702,18 @@ def model_health_report(
     return {"health": list_model_health(days=days)}
 
 
+@router.get("/models/speed")
+def model_speed_report(store: StoreDep) -> dict:
+    """Observed generation speed per model, averaged over this corpus's timed nodes.
+
+    Complements `/models/health` (whether a model works) with how fast it is
+    when it does: time to first token, total elapsed time, and end-to-end
+    completion throughput, each averaged over every node that carries timing
+    metadata.
+    """
+    return {"speed": store.speed_stats_by_model()}
+
+
 @router.post("/import", status_code=201)
 def import_tree(body: dict, store: StoreDep, request: Request) -> dict:
     if value_exceeds_field_limit(body, request.app.state.config.server.max_field_bytes):

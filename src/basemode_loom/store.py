@@ -1081,6 +1081,48 @@ class GenerationStore:
             for row in rows
         }
 
+    def speed_stats_by_model(self) -> dict[str, dict[str, float | int]]:
+        """Per model: observed generation speed, averaged over timed nodes.
+
+        Only nodes that carry `metadata.timing` (set for streamed
+        completions with a first-token timestamp) count; a model that has
+        only been reached through import or a non-streaming path has no
+        speed record here even if it has generated nodes.
+        """
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    model,
+                    COUNT(*) AS timed_nodes,
+                    AVG(json_extract(metadata_json, '$.timing.ttft_ms')) AS avg_ttft_ms,
+                    AVG(json_extract(metadata_json, '$.timing.elapsed_ms')) AS avg_elapsed_ms,
+                    AVG(json_extract(metadata_json, '$.timing.completion_tokens_per_second'))
+                        AS avg_completion_tokens_per_second,
+                    SUM(json_extract(metadata_json, '$.timing.completion_tokens'))
+                        AS total_completion_tokens
+                FROM nodes
+                WHERE model IS NOT NULL
+                    AND json_extract(metadata_json, '$.timing.elapsed_ms') IS NOT NULL
+                GROUP BY model
+                ORDER BY model
+                """
+            ).fetchall()
+        return {
+            str(row["model"]): {
+                "timed_nodes": int(row["timed_nodes"]),
+                "avg_ttft_ms": round(row["avg_ttft_ms"], 3),
+                "avg_elapsed_ms": round(row["avg_elapsed_ms"], 3),
+                "avg_completion_tokens_per_second": (
+                    round(row["avg_completion_tokens_per_second"], 3)
+                    if row["avg_completion_tokens_per_second"] is not None
+                    else None
+                ),
+                "total_completion_tokens": int(row["total_completion_tokens"] or 0),
+            }
+            for row in rows
+        }
+
     def recent(self, limit: int = 20) -> list[Node]:
         with closing(self.connect()) as conn:
             rows = conn.execute(
