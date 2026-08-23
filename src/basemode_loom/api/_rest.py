@@ -624,6 +624,50 @@ def read_model_rating(
     return ModelRating(model=resolved, rating=get_rating(resolved))
 
 
+@router.get("/flags")
+def list_flagged_generations(
+    store: StoreDep,
+    model: Annotated[str | None, Query(description="Only this model's nodes")] = None,
+    limit: Annotated[int, Query(ge=1, le=500)] = 50,
+    prefix_chars: Annotated[
+        int,
+        Query(
+            ge=0,
+            le=8000,
+            description="How much of the text the model continued from to include.",
+        ),
+    ] = 600,
+) -> dict:
+    """Generations a user marked as bad, with the evidence needed to read them.
+
+    Each entry pairs what the model was given with what it produced, so the
+    seam between the two — where a botched first word shows up — can be read
+    directly. `by_model` counts flags against generated nodes for the same
+    model, because three flags out of three is not three out of three hundred.
+    """
+    resolved = resolve_model_id(model.strip()) if model and model.strip() else None
+    flagged = store.flagged_nodes(model=resolved, limit=limit)
+    entries = []
+    for node in flagged:
+        prefix = store.full_text(node.parent_id) if node.parent_id else ""
+        entries.append(
+            {
+                "node_id": node.id,
+                "tree_id": node.tree_id,
+                "parent_id": node.parent_id,
+                "model": node.model,
+                "strategy": node.strategy,
+                "max_tokens": node.max_tokens,
+                "temperature": node.temperature,
+                "created_at": node.created_at,
+                "prefix": prefix[-prefix_chars:] if prefix_chars else "",
+                "prefix_truncated": len(prefix) > prefix_chars,
+                "text": node.text,
+            }
+        )
+    return {"flags": entries, "by_model": store.flag_counts_by_model()}
+
+
 @router.get("/models/health")
 def model_health_report(
     model: Annotated[

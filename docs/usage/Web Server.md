@@ -357,6 +357,57 @@ allow_rating_writes = true
 
 or `BASEMODE_LOOM_ALLOW_RATING_WRITES=true`.
 
+### Flagged generations
+
+A user can mark one generation as bad: `flag_node` over the websocket sets
+`flagged` on the node, exactly like a bookmark, and toggles it off again.
+
+It is deliberately a bare boolean rather than a reason code. The node and its
+parent already carry everything needed to work out *what* went wrong — the
+text on both sides of the seam the model continued from, the model, the
+strategy, and the parameters it ran with — so the flag only has to mark which
+generations are worth reading.
+
+```
+GET /api/flags
+GET /api/flags?model=deepseek/deepseek-v4-flash&limit=20&prefix_chars=600
+```
+
+```json
+{
+  "flags": [
+    {
+      "node_id": "...",
+      "tree_id": "...",
+      "parent_id": "...",
+      "model": "deepseek/deepseek-v4-flash",
+      "strategy": "system",
+      "max_tokens": 200,
+      "temperature": 0.9,
+      "created_at": "2026-08-23T18:41:02Z",
+      "prefix": "...the ship rounded the headland and",
+      "prefix_truncated": true,
+      "text": "the sea opened out."
+    }
+  ],
+  "by_model": {
+    "deepseek/deepseek-v4-flash": {"generated": 40, "flagged": 12}
+  }
+}
+```
+
+Each entry pairs what the model was given with what it produced, so the join
+between them reads directly — which is where a botched first word shows up.
+`prefix` is the tail of the real generation prefix (the whole lineage, not
+just the parent node's own text), trimmed to `prefix_chars`. `by_model`
+counts flags against generated nodes for the same model, because three flags
+out of three is a different signal from three out of three hundred.
+
+Unlike ratings and health, flags live in the corpus database rather than in
+basemode's config, because the evidence does: a flag is worth nothing without
+the node it points at, and it should travel with the tree when it is exported
+or shared.
+
 ### Observed model health
 
 A rating is an opinion; health is the record. Every generated branch is
@@ -445,6 +496,7 @@ guards. Provider exception details are not returned to clients.
 {"type": "add_node", "parent_id": "...", "text": "..."}
 {"type": "delete_node", "node_id": "..."}
 {"type": "bookmark_node", "node_id": "..."}
+{"type": "flag_node", "node_id": "..."}
 {"type": "bookmark_toggle"}
 {"type": "bookmark_next"}
 {"type": "view_toggle"}
@@ -465,7 +517,8 @@ with a `state` message.
 `delete_node` removes a node and its whole subtree, landing the cursor on the
 parent; it refuses a root, which would take the tree with it. `bookmark_node`
 toggles the bookmark on any node, where `bookmark_toggle` only reaches the
-current one.
+current one. `flag_node` toggles `flagged` on a node — see
+[Flagged generations](#flagged-generations).
 
 Config updates use `set_params`:
 

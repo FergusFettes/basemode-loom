@@ -6,6 +6,13 @@ under Unreleased.
 
 ## Unreleased
 
+### Added
+
+- A generation can be flagged as bad: `flag_node` over the websocket sets
+  `flagged` on the node the way a bookmark does, and `GET /api/flags` reads
+  the flagged ones back paired with the text each model was continuing from,
+  plus per-model flag counts weighed against how much that model was used.
+
 ### Changed
 
 - Generating no longer moves the reader. A finished branch is saved and left

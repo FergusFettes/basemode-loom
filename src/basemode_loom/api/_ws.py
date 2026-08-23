@@ -476,6 +476,16 @@ async def session_ws(
                     continue
                 await push_state()
 
+            elif msg_type == "flag_node":
+                node_id = data.get("node_id")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("flag_node requires a node_id")
+                    continue
+                if session.toggle_node_flag(node_id) is None:
+                    await send_error(f"unknown node: {node_id!r}")
+                    continue
+                await push_state()
+
             elif msg_type == "bookmark_toggle":
                 session.toggle_bookmark()
                 await push_state()

@@ -1002,6 +1002,21 @@ class LoomSession:
         self._store.update_metadata(node.id, {"bookmarked": bookmarked})
         return bookmarked
 
+    def toggle_node_flag(self, node_id: str) -> bool | None:
+        """Toggle 'this generation went wrong' on any node.
+
+        Deliberately a bare boolean. The node and its parent already hold
+        everything needed to work out *what* went wrong — the text either side
+        of the seam, the model, and the parameters it ran with — so the flag
+        only has to mark which ones are worth reading.
+        """
+        node = self._store.get(node_id)
+        if node is None:
+            return None
+        flagged = not bool(node.metadata.get("flagged"))
+        self._store.update_metadata(node.id, {"flagged": flagged})
+        return flagged
+
     def update_context(self, context: str) -> None:
         node = self._store.get(self._current_id)
         if node is None:

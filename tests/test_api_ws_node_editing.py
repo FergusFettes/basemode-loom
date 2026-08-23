@@ -208,3 +208,32 @@ def test_bookmark_node_rejects_an_unknown_node(tmp_path) -> None:
             msg = ws.receive_json()
 
     assert msg["type"] == "error"
+
+
+def test_flag_node_marks_a_generation_as_bad(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "flag_node", "node_id": child.id})
+            _recv_state(ws)
+            assert store.get(child.id).metadata.get("flagged") is True
+
+            ws.send_json({"type": "flag_node", "node_id": child.id})
+            _recv_state(ws)
+            assert store.get(child.id).metadata.get("flagged") is False
+
+
+def test_flag_node_rejects_an_unknown_node(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json({"type": "flag_node", "node_id": "nope"})
+            msg = ws.receive_json()
+
+    assert msg["type"] == "error"

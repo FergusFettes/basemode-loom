@@ -1019,6 +1019,60 @@ class GenerationStore:
                 counts[row[0]] = int(row[1])
         return counts
 
+    def flagged_nodes(
+        self, *, model: str | None = None, limit: int = 100
+    ) -> list[Node]:
+        """Nodes a user marked as a bad generation, newest first.
+
+        The flag lives in node metadata like ``bookmarked``, so this reads it
+        back out with ``json_extract`` rather than a column. A corpus large
+        enough for that scan to hurt wants a partial index on the same
+        expression; nothing here depends on the storage staying JSON.
+        """
+        sql = [
+            "SELECT * FROM nodes",
+            "WHERE json_extract(metadata_json, '$.flagged') = 1",
+        ]
+        params: list[Any] = []
+        if model:
+            sql.append("AND model = ?")
+            params.append(model)
+        sql.append("ORDER BY created_at DESC, id DESC LIMIT ?")
+        params.append(limit)
+        with closing(self.connect()) as conn:
+            rows = conn.execute(" ".join(sql), params).fetchall()
+        return [self._node(row) for row in rows]
+
+    def flag_counts_by_model(self) -> dict[str, dict[str, int]]:
+        """Per model: how many generated nodes there are, and how many are flagged.
+
+        Both halves matter — three flags against a model used three times is a
+        different signal from three against a model used three hundred times.
+        """
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                SELECT
+                    model,
+                    COUNT(*) AS generated,
+                    SUM(
+                        CASE WHEN json_extract(metadata_json, '$.flagged') = 1
+                        THEN 1 ELSE 0 END
+                    ) AS flagged
+                FROM nodes
+                WHERE model IS NOT NULL
+                GROUP BY model
+                ORDER BY model
+                """
+            ).fetchall()
+        return {
+            str(row["model"]): {
+                "generated": int(row["generated"]),
+                "flagged": int(row["flagged"] or 0),
+            }
+            for row in rows
+        }
+
     def recent(self, limit: int = 20) -> list[Node]:
         with closing(self.connect()) as conn:
             rows = conn.execute(
