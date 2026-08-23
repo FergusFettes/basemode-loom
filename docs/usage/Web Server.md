@@ -350,6 +350,7 @@ Config updates use `set_params`:
   "temperature": 0.9,
   "n_branches": 3,
   "context": "",
+  "rewind_split_tokens": true,
   "show_model_names": true,
   "model_plan": [
     {
@@ -370,6 +371,7 @@ Validation constraints:
 - `max_tokens`: `50`-`8000`
 - `temperature`: `0.0`-`2.0`
 - `n_branches`: `1`-`64`
+- `rewind_split_tokens`: boolean
 - `model_plan`: non-empty list
 
 ### Server messages

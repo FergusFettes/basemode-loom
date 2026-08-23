@@ -47,6 +47,7 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "max_tokens",
         "temperature",
         "n_branches",
+        "rewind_split_tokens",
         "context",
         "show_model_names",
         "model_plan",
@@ -96,6 +97,13 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             errors["n_branches"] = "must be an integer between 1 and 64"
         else:
             patch["n_branches"] = value
+
+    if "rewind_split_tokens" in data:
+        value = data["rewind_split_tokens"]
+        if not isinstance(value, bool):
+            errors["rewind_split_tokens"] = "must be a boolean"
+        else:
+            patch["rewind_split_tokens"] = value
 
     if "context" in data:
         value = data["context"]

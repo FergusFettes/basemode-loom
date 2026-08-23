@@ -52,6 +52,7 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
         "max_tokens": state.max_tokens,
         "temperature": state.temperature,
         "n_branches": state.n_branches,
+        "rewind_split_tokens": bool(state.rewind_split_tokens),
         "model_plan": [
             {
                 "model": p.model,

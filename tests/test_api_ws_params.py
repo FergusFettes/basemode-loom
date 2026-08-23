@@ -42,6 +42,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
                     "temperature": 0.4,
                     "n_branches": 3,
                     "context": "world facts",
+                    "rewind_split_tokens": True,
                     "show_model_names": False,
                     "model_plan": [
                         {
@@ -50,6 +51,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
                             "max_tokens": 512,
                             "temperature": 0.4,
                             "enabled": True,
+                            "pinned_settings": True,
                         }
                     ],
                     "persist": True,
@@ -60,6 +62,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             assert state["temperature"] == 0.4
             assert state["n_branches"] == 3
             assert state["context"] == "world facts"
+            assert state["rewind_split_tokens"] is True
             assert state["show_model_names"] is False
 
         with client.websocket_connect("/ws/session") as ws:
@@ -69,6 +72,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             assert state["temperature"] == 0.4
             assert state["n_branches"] == 3
             assert state["context"] == "world facts"
+            assert state["rewind_split_tokens"] is True
             assert state["show_model_names"] is False
 
     persisted_root = store.root(root.id)
@@ -77,6 +81,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
     assert context is not None
     assert context.text == "world facts"
     assert tree.show_model_names is False
+    assert tree.rewind_split_tokens == 1
     assert tree.model_plan == [
         {
             "model": "openai/gpt-4o-mini",
@@ -84,6 +89,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             "max_tokens": 512,
             "temperature": 0.4,
             "enabled": True,
+            "pinned_settings": True,
         }
     ]
     assert "model" not in persisted_root.metadata
@@ -121,6 +127,7 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
                 "max_tokens": 600,
                 "temperature": 0.7,
                 "enabled": True,
+                "pinned_settings": True,
             }
         ]
         assert "model" not in root_node["metadata"]
@@ -142,6 +149,7 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
                     "type": "set_params",
                     "temperature": 9,
                     "max_tokens": "a lot",
+                    "rewind_split_tokens": 1,
                     "persist": False,
                 }
             )
@@ -152,6 +160,7 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
             assert (
                 msg["fields"]["max_tokens"] == "must be an integer between 10 and 8000"
             )
+            assert msg["fields"]["rewind_split_tokens"] == "must be a boolean"
             assert msg["fields"]["persist"] == "only persist=true is supported"
 
     assert store.tree_for_node(root.id).model_plan[0]["max_tokens"] == 200

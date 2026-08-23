@@ -128,6 +128,7 @@ class SessionState:
     max_tokens: int
     temperature: float
     n_branches: int
+    rewind_split_tokens: bool
     context: str
     root_id: str
     view_mode: Literal["branch", "tree"] = "branch"
@@ -236,6 +237,7 @@ class LoomSession:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             n_branches=self.n_branches,
+            rewind_split_tokens=bool(self.rewind_split_tokens),
             model_plan=self.model_plan,
             context=self._current_context(node),
             root_id=root.id,
@@ -800,6 +802,8 @@ class LoomSession:
             self.temperature = float(config_patch["temperature"])
         if "n_branches" in config_patch:
             self.set_n_branches(int(config_patch["n_branches"]))
+        if "rewind_split_tokens" in config_patch:
+            self.rewind_split_tokens = int(bool(config_patch["rewind_split_tokens"]))
         if "show_model_names" in config_patch:
             self.show_model_names = bool(config_patch["show_model_names"])
         if "context" in config_patch:
