@@ -1022,16 +1022,18 @@ class GenerationStore:
     def flagged_nodes(
         self, *, model: str | None = None, limit: int = 100
     ) -> list[Node]:
-        """Nodes a user marked as a bad generation, newest first.
+        """Nodes with a recorded generation-quality issue, newest first.
 
-        The flag lives in node metadata like ``bookmarked``, so this reads it
-        back out with ``json_extract`` rather than a column. A corpus large
-        enough for that scan to hurt wants a partial index on the same
-        expression; nothing here depends on the storage staying JSON.
+        An explicit flag and an in-place boundary correction are the same
+        quality signal. Query both so historical corrections made before they
+        automatically set ``flagged`` remain visible too. A corpus large
+        enough for that scan to hurt wants partial indexes on these JSON
+        expressions; nothing here depends on the storage staying JSON.
         """
         sql = [
             "SELECT * FROM nodes",
-            "WHERE json_extract(metadata_json, '$.flagged') = 1",
+            "WHERE (json_extract(metadata_json, '$.flagged') = 1",
+            "OR COALESCE(json_array_length(json_extract(metadata_json, '$.in_place_edits')), 0) > 0)",
         ]
         params: list[Any] = []
         if model:
@@ -1044,7 +1046,7 @@ class GenerationStore:
         return [self._node(row) for row in rows]
 
     def flag_counts_by_model(self) -> dict[str, dict[str, int]]:
-        """Per model: how many generated nodes there are, and how many are flagged.
+        """Per model: how many generated nodes there are, and how many had issues.
 
         Both halves matter — three flags against a model used three times is a
         different signal from three against a model used three hundred times.
@@ -1057,6 +1059,12 @@ class GenerationStore:
                     COUNT(*) AS generated,
                     SUM(
                         CASE WHEN json_extract(metadata_json, '$.flagged') = 1
+                            OR COALESCE(
+                                json_array_length(
+                                    json_extract(metadata_json, '$.in_place_edits')
+                                ),
+                                0
+                            ) > 0
                         THEN 1 ELSE 0 END
                     ) AS flagged
                 FROM nodes

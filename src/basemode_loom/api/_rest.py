@@ -666,6 +666,11 @@ def list_flagged_generations(
                 # Only present when healing rewrote the opening, which is
                 # exactly when the seam is worth a second look.
                 "boundary": node.metadata.get("boundary"),
+                # A space correction raises the same output-quality signal as
+                # an explicit flag, while retaining the concrete evidence.
+                "in_place_edits": node.metadata.get("in_place_edits", []),
+                "usage": node.metadata.get("usage"),
+                "timing": node.metadata.get("timing"),
             }
         )
     return {"flags": entries, "by_model": store.flag_counts_by_model()}

@@ -109,6 +109,7 @@ def test_remove_leading_space_updates_the_existing_node_in_place(tmp_path) -> No
     assert store.get(child.id).metadata["in_place_edits"] == [
         {"kind": "remove_leading_space", "before": " world", "after": "world"}
     ]
+    assert store.get(child.id).metadata["flagged"] is True
 
 
 def test_add_leading_space_updates_the_existing_node_in_place(tmp_path) -> None:
@@ -127,6 +128,7 @@ def test_add_leading_space_updates_the_existing_node_in_place(tmp_path) -> None:
     assert store.get(child.id).metadata["in_place_edits"] == [
         {"kind": "add_leading_space", "before": "world", "after": " world"}
     ]
+    assert store.get(child.id).metadata["flagged"] is True
 
 
 def test_edit_node_requires_a_node_id(tmp_path) -> None:

@@ -88,6 +88,26 @@ def test_only_flagged_nodes_come_back(corpus) -> None:
     assert [node.id for node in flagged] == [children[1].id]
 
 
+def test_boundary_correction_enters_the_flagged_generation_corpus(corpus) -> None:
+    parent, children = _seeded(corpus)
+    session = LoomSession(corpus, parent.id)
+
+    corrected = session.remove_leading_space(children[0].id)
+
+    assert corrected is not None
+    assert corrected.metadata["flagged"] is True
+    # Corrections from before automatic flagging still belong in the same
+    # review corpus; an explicit flag toggle must not hide that evidence.
+    corpus.update_metadata(corrected.id, {"flagged": False})
+    assert [node.id for node in corpus.flagged_nodes()] == [children[0].id]
+    with _client(corpus) as client:
+        body = client.get("/api/flags").json()
+    assert body["flags"][0]["in_place_edits"] == [
+        {"kind": "remove_leading_space", "before": " the sea opened out.", "after": "the sea opened out."}
+    ]
+    assert body["by_model"]["deepseek/deepseek-v4-flash"]["flagged"] == 1
+
+
 def test_flagged_nodes_can_be_narrowed_to_one_model(corpus) -> None:
     parent, children = _seeded(corpus)
     corpus.update_metadata(children[0].id, {"flagged": True})

@@ -1071,7 +1071,8 @@ class LoomSession:
         is unwanted.  Retaining the node keeps its descendants and its place
         among the parent's sibling choices intact.  Record the correction in
         metadata so the generated text and the manual boundary adjustment are
-        both recoverable.
+        both recoverable.  A manual seam correction is itself evidence that
+        the generation was wrong, so it also enters the flagged corpus.
         """
         node = self._store.get(node_id)
         if node is None or not node.text.startswith(" "):
@@ -1095,7 +1096,10 @@ class LoomSession:
         edits = node.metadata.get("in_place_edits", [])
         history = list(edits) if isinstance(edits, list) else []
         history.append({"kind": kind, "before": node.text, "after": text})
-        return self._store.update_metadata(updated.id, {"in_place_edits": history})
+        return self._store.update_metadata(
+            updated.id,
+            {"in_place_edits": history, "flagged": True},
+        )
 
     def add_child_node(self, parent_id: str, text: str) -> Node | None:
         """Hang a hand-written child off ``parent_id`` and check it out.

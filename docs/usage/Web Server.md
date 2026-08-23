@@ -361,12 +361,13 @@ or `BASEMODE_LOOM_ALLOW_RATING_WRITES=true`.
 
 A user can mark one generation as bad: `flag_node` over the websocket sets
 `flagged` on the node, exactly like a bookmark, and toggles it off again.
+An in-place boundary correction raises the same signal, so it also appears in
+this corpus, including corrections recorded before automatic flagging.
 
-It is deliberately a bare boolean rather than a reason code. The node and its
-parent already carry everything needed to work out *what* went wrong — the
-text on both sides of the seam the model continued from, the model, the
-strategy, and the parameters it ran with — so the flag only has to mark which
-generations are worth reading.
+The node and its parent carry everything needed to work out *what* went wrong:
+the text on both sides of the seam, the model, strategy, parameters, and any
+recorded boundary correction. The signal only marks which generations are
+worth reading.
 
 ```
 GET /api/flags
@@ -536,8 +537,9 @@ with a `state` message.
 `remove_leading_space` is the intentionally narrow exception to forked
 editing: it removes exactly one opening ASCII space from an existing node,
 without changing its identity, descendants, or sibling position. It records
-the correction's before/after text in `metadata.in_place_edits`.
-`add_leading_space` provides the inverse correction with the same guarantees.
+the correction's before/after text in `metadata.in_place_edits` and flags the
+node as a bad generation, so it appears in `GET /api/flags` with explicit
+flags. `add_leading_space` does the same.
 
 `delete_node` removes a node and its whole subtree, landing the cursor on the
 parent; it refuses a root, which would take the tree with it. `bookmark_node`
