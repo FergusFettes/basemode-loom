@@ -1034,9 +1034,7 @@ class LoomSession:
         edits = node.metadata.get("in_place_edits", [])
         history = list(edits) if isinstance(edits, list) else []
         history.append({"kind": kind, "before": node.text, "after": text})
-        return self._store.update_metadata(
-            updated.id, {"in_place_edits": history}
-        )
+        return self._store.update_metadata(updated.id, {"in_place_edits": history})
 
     def add_child_node(self, parent_id: str, text: str) -> Node | None:
         """Hang a hand-written child off ``parent_id`` and check it out.
