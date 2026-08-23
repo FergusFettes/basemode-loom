@@ -1,9 +1,10 @@
-"""Per-user model thumbs over the API.
+"""Per-user model thumbs and observed model health over the API.
 
 The load-bearing properties: a thumb is stored under the same normalized
 model ID generation uses, it lands in basemode's config file rather than in
 the corpus database (so it survives a `--db` swap), and a shared deployment
-does not let visitors rewrite the operator's preferences.
+does not let visitors rewrite the operator's preferences. Health is the other
+half of the picture — an opinion beside a record of what actually happened.
 """
 
 from __future__ import annotations
@@ -149,3 +150,85 @@ def test_rated_models_surface_in_the_model_listing(tmp_path) -> None:
     rated = [m for m in models if m["model"].endswith("gpt-4o-mini")]
     assert rated
     assert rated[0]["rating"] == 1
+
+
+def test_health_is_empty_until_something_has_been_generated(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        assert client.get("/api/models/health").json() == {"health": {}}
+
+
+def test_health_reports_recorded_outcomes(tmp_path) -> None:
+    from basemode import health
+
+    health.record_outcome("openai/gpt-4o-mini", ok=True)
+    health.record_outcome("openai/gpt-4o-mini", ok=False, category="rate_limit")
+
+    with _client(tmp_path) as client:
+        body = client.get("/api/models/health").json()
+
+    observed = body["health"]["openai/gpt-4o-mini"]
+    assert observed["attempts"] == 2
+    assert observed["failures"] == 1
+    assert observed["failure_rate"] == 0.5
+    assert observed["categories"] == {"rate_limit": 1}
+
+
+def test_health_for_one_model_normalizes_the_id(tmp_path) -> None:
+    from basemode import health
+
+    health.record_outcome("openai/gpt-4o-mini", ok=True)
+
+    with _client(tmp_path) as client:
+        body = client.get("/api/models/health", params={"model": "gpt-4o-mini"}).json()
+
+    assert list(body["health"]) == ["openai/gpt-4o-mini"]
+
+
+def test_health_for_an_unused_model_is_empty_rather_than_404(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        response = client.get("/api/models/health", params={"model": "gpt-4o-mini"})
+
+    assert response.status_code == 200
+    assert response.json() == {"health": {}}
+
+
+def test_health_rejects_a_blank_model(tmp_path) -> None:
+    with _client(tmp_path) as client:
+        response = client.get("/api/models/health", params={"model": "  "})
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {"code": "empty_model"}
+
+
+def test_the_model_listing_carries_health(tmp_path) -> None:
+    from basemode import health
+
+    health.record_outcome("openai/gpt-4o-mini", ok=False, category="timeout")
+
+    with _client(tmp_path) as client:
+        models = client.get(
+            "/api/models", params={"search": "gpt-4o-mini", "available": False}
+        ).json()["models"]
+
+    rated = [m for m in models if m["model"].endswith("gpt-4o-mini")]
+    assert rated
+    assert rated[0]["health"]["categories"] == {"timeout": 1}
+
+
+def test_a_health_window_narrows_the_breakdown(tmp_path) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from basemode import health
+
+    health.record_outcome("openai/gpt-4o-mini", ok=False, category="timeout")
+    old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
+    with health._connect() as conn:
+        conn.execute("UPDATE model_events SET at = ?", (old,))
+
+    with _client(tmp_path) as client:
+        body = client.get("/api/models/health", params={"days": 7}).json()
+
+    observed = body["health"]["openai/gpt-4o-mini"]
+    assert observed["failures"] == 1
+    assert observed["categories"] == {}
+    assert observed["recent_attempts"] == 0

@@ -19,6 +19,7 @@ from typing import Any, Literal
 from basemode.continue_ import continue_text
 from basemode.detect import detect_strategy
 from basemode.healing import needs_leading_space, normalize_completion_segment
+from basemode.health import record_outcome
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage
 
@@ -184,7 +185,10 @@ class SessionState:
 class LoomSession:
     def __init__(self, store: GenerationStore, start_id: str) -> None:
         self._store = store
-        self._cancelled = asyncio.Event()
+        # One token per in-flight generation, so several can run at once (in
+        # different places in the tree) and a cancel stops the ones that are
+        # actually running rather than leaking into the next one started.
+        self._cancel_tokens: set[asyncio.Event] = set()
 
         root_node = store.root(start_id)
         tree = store.tree_for_node(root_node.id)
@@ -422,12 +426,33 @@ class LoomSession:
     # --- Generation ---
 
     def cancel(self) -> None:
-        self._cancelled.set()
+        """Stop every generation currently in flight on this session."""
+        for token in self._cancel_tokens:
+            token.set()
+
+    @property
+    def generating(self) -> bool:
+        return bool(self._cancel_tokens)
 
     async def generate(
         self, *, max_context_tokens: int | None = None
     ) -> AsyncGenerator[GenerationEvent, None]:
-        self._cancelled.clear()
+        cancel_token = asyncio.Event()
+        self._cancel_tokens.add(cancel_token)
+        try:
+            async for event in self._generate(
+                cancel_token, max_context_tokens=max_context_tokens
+            ):
+                yield event
+        finally:
+            self._cancel_tokens.discard(cancel_token)
+
+    async def _generate(
+        self,
+        cancel_token: asyncio.Event,
+        *,
+        max_context_tokens: int | None = None,
+    ) -> AsyncGenerator[GenerationEvent, None]:
         state = self.get_state()
         source_node_id = state.current_node_id
         prefix = state.full_text
@@ -492,8 +517,15 @@ class LoomSession:
                     f"model_idx={_model_idx} branch_idx={_branch_idx} "
                     f"slot_idx={slot_idx}"
                 )
-                branch_errors[slot_idx] = empty_response_diagnostic()
+                diagnostic = empty_response_diagnostic()
+                branch_errors[slot_idx] = diagnostic
+                record_outcome(
+                    resolve_model_id(plan.model),
+                    ok=False,
+                    category=diagnostic.category,
+                )
                 return None
+            record_outcome(resolve_model_id(plan_entry[2].model), ok=True)
             node = self._save_completions(
                 prefix, [plan_entry], [raw], parent_id=source_node_id
             )[0]
@@ -516,12 +548,22 @@ class LoomSession:
                     context=context,
                     rewind=bool(self.rewind_split_tokens),
                     strict_max_tokens=True,
+                    # A branch is only a success once its text survives
+                    # normalization, which basemode cannot see, so the outcome
+                    # is recorded here instead of once at each layer.
+                    record_health=False,
                 ):
-                    if self._cancelled.is_set():
+                    if cancel_token.is_set():
                         break
                     await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
                 diagnostic = provider_diagnostic(exc)
+                record_outcome(
+                    resolve_model_id(plan.model),
+                    ok=False,
+                    category=diagnostic.category,
+                    status=diagnostic.status,
+                )
                 log.error(
                     "generation branch failed "
                     f"model={plan.model} model_idx={model_idx} "
@@ -544,7 +586,7 @@ class LoomSession:
                 try:
                     item = await asyncio.wait_for(queue.get(), timeout=0.1)
                 except TimeoutError:
-                    if self._cancelled.is_set():
+                    if cancel_token.is_set():
                         cancelled = True
                         break
                     continue
@@ -572,7 +614,7 @@ class LoomSession:
                         token=tok,
                     )
 
-                if self._cancelled.is_set():
+                if cancel_token.is_set():
                     cancelled = True
                     break
         finally:

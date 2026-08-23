@@ -2,6 +2,7 @@ import asyncio
 
 import pytest
 
+from basemode_loom.model_resolver import resolve_model_id
 from basemode_loom.session import (
     BranchComplete,
     GenerationCancelled,
@@ -1204,3 +1205,83 @@ async def test_generate_saves_each_branch_as_it_finishes(store, monkeypatch):
     complete = next(e for e in events if isinstance(e, GenerationComplete))
     assert len(complete.new_nodes) == 2
     assert len(store.children(ch[0].id)) == 2
+
+
+# --- health recording ---
+
+
+@pytest.mark.asyncio
+async def test_generate_records_a_successful_branch_against_the_model(
+    store, monkeypatch
+):
+    from basemode import health
+
+    async def fake_continue(prefix, model, **kwargs):
+        yield " onward"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 2
+
+    async for _event in session.generate():
+        pass
+
+    observed = health.model_health(resolve_model_id(session.model))
+    assert observed["attempts"] == 2
+    assert observed["successes"] == 2
+
+
+@pytest.mark.asyncio
+async def test_generate_records_a_provider_failure_with_its_category(
+    store, monkeypatch
+):
+    from basemode import health
+
+    class RateLimited(RuntimeError):
+        status_code = 429
+
+    async def failing_continue(prefix, model, **kwargs):
+        raise RateLimited("slow down")
+        yield  # pragma: no cover - generator marker
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", failing_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    observed = health.model_health(resolve_model_id(session.model))
+    assert observed["failures"] == 1
+    assert observed["categories"] == {"rate_limit": 1}
+    assert observed["last_status"] == 429
+
+
+@pytest.mark.asyncio
+async def test_a_branch_that_normalizes_away_is_recorded_as_empty(store, monkeypatch):
+    """basemode saw tokens arrive, so only the session can call this a failure."""
+    from basemode import health
+
+    async def whitespace_continue(prefix, model, **kwargs):
+        yield "   "
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", whitespace_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    observed = health.model_health(resolve_model_id(session.model))
+    assert observed["attempts"] == 1
+    assert observed["failures"] == 1
+    assert observed["categories"] == {"empty_response": 1}

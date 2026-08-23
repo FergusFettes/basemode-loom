@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Annotated, Any, Literal
 
+from basemode.health import list_model_health, model_health
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, StrictInt
 
@@ -18,6 +19,7 @@ from ..credentials import (
 from ..graph_stats import analyze_subtree
 from ..images import MAX_PROMPT_CHARS, ImageGenerationError, generate_branch_image
 from ..model_ratings import get_rating, is_valid_rating, list_ratings, set_rating
+from ..model_resolver import resolve_model_id
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -520,6 +522,13 @@ def list_models(
     available: Annotated[bool, Query()] = True,
     verified: Annotated[bool, Query()] = False,
     since: Annotated[str | None, Query()] = None,
+    health_days: Annotated[
+        int | None,
+        Query(
+            ge=1,
+            description="Window, in days, for each model's failure breakdown.",
+        ),
+    ] = None,
 ) -> dict:
     try:
         import basemode.models as bm  # type: ignore[import]
@@ -542,6 +551,7 @@ def list_models(
                     available_only=available,
                     verified_only=verified,
                     since=since,
+                    health_days=health_days,
                 )
             }
         return {"models": bm.list_models(available_only=available)}
@@ -612,6 +622,32 @@ def read_model_rating(
     if not resolved:
         raise HTTPException(status_code=422, detail={"code": "empty_model"})
     return ModelRating(model=resolved, rating=get_rating(resolved))
+
+
+@router.get("/models/health")
+def model_health_report(
+    model: Annotated[
+        str | None, Query(description="Model ID; omit for every model seen")
+    ] = None,
+    days: Annotated[
+        int | None,
+        Query(ge=1, description="Window, in days, for the failure breakdown."),
+    ] = None,
+) -> dict:
+    """What models actually did on this machine, recorded from real usage.
+
+    Attempts, failures, failure rate, and the categories they failed with —
+    the counterpart to a rating, which is only an opinion. All-time totals
+    are kept indefinitely; the category breakdown comes from an event log
+    pruned after 30 days, so a `days` window never reaches further back.
+    """
+    if model is not None:
+        resolved = resolve_model_id(model.strip()) if model.strip() else ""
+        if not resolved:
+            raise HTTPException(status_code=422, detail={"code": "empty_model"})
+        observed = model_health(resolved, days=days)
+        return {"health": {resolved: observed} if observed else {}}
+    return {"health": list_model_health(days=days)}
 
 
 @router.post("/import", status_code=201)

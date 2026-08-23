@@ -357,6 +357,57 @@ allow_rating_writes = true
 
 or `BASEMODE_LOOM_ALLOW_RATING_WRITES=true`.
 
+### Observed model health
+
+A rating is an opinion; health is the record. Every generated branch is
+recorded against the model it ran on — whether it produced usable text, and
+if not, how it failed — in basemode's `~/.config/basemode/health.sqlite`. A
+branch counts as a failure when the provider errors, when it returns nothing,
+and when what it returned normalizes away to whitespace, which is a case only
+the loom session can see.
+
+```
+GET /api/models/health
+GET /api/models/health?model=gpt-4o-mini&days=7
+```
+
+```json
+{
+  "health": {
+    "openai/gpt-4o-mini": {
+      "model": "openai/gpt-4o-mini",
+      "attempts": 84,
+      "successes": 75,
+      "failures": 9,
+      "failure_rate": 0.1071,
+      "last_category": "rate_limit",
+      "last_status": 429,
+      "last_failure_at": "2026-08-23T13:41:02.517841+00:00",
+      "window_days": 7,
+      "recent_attempts": 31,
+      "recent_failures": 2,
+      "recent_failure_rate": 0.0645,
+      "categories": {"rate_limit": 2}
+    }
+  }
+}
+```
+
+`model` is normalized the way generation normalizes it, and a model that has
+never been generated with is simply absent rather than a `404`; a blank
+`model` is `422 empty_model`. All-time totals are kept indefinitely, while
+the category breakdown comes from an event log pruned after 30 days, so a
+`days` window never reaches further back than that.
+
+Entries from `GET /api/models` carry the same record in a `health` field
+(`null` for a model never used); pass `health_days=` there to window it. The
+failure categories match the `category` on a `generation_error` WebSocket
+message, so a UI can label a live failure and the history with one vocabulary.
+
+Recording is read-only from the API's point of view — there is no endpoint
+that writes it, and it happens as a side effect of generating. Set
+`BASEMODE_NO_HEALTH=1` in the server's environment to turn it off.
+
 ## WebSocket API
 
 For live interactive sessions, connect to the WebSocket endpoint:
