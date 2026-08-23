@@ -107,3 +107,31 @@ def test_the_per_session_cap_is_reported(tmp_path, monkeypatch) -> None:
 
         release.set()
         ws.send_json({"type": "cancel"})
+
+
+def test_timeout_is_reported_as_a_failure_for_each_unfinished_model(tmp_path, monkeypatch) -> None:
+    async def blocked_continue(*_args, **_kwargs):
+        await asyncio.Future()
+        yield "unreachable"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", blocked_continue)
+
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    root = store.create_root("Seed")
+    app = _app_with(store, ServerConfig(generation_timeout_seconds=0.01))
+
+    with TestClient(app) as client, client.websocket_connect("/ws/session") as ws:
+        _init(ws, root.id)
+        ws.send_json({"type": "set_params", "model": "slow-model", "n_branches": 1})
+        _recv_state(ws)
+        ws.send_json({"type": "generate"})
+
+        timeout = _drain_until(ws, "generation_error")[-1]
+        assert timeout == {
+            "type": "generation_error",
+            "error": "generation timed out",
+            "model": "slow-model",
+            "model_idx": 0,
+            "branch_idx": 0,
+            "category": "timeout",
+        }

@@ -5,11 +5,13 @@ import json
 import math
 from typing import Any
 
+from basemode.health import record_outcome
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import ServerConfig
 from ..logging_utils import get_logger
 from ..model_plan import MAX_MAX_TOKENS, MIN_MAX_TOKENS, validate_model_plan
+from ..model_resolver import resolve_model_id
 from ..session import (
     BranchComplete,
     GenerationCancelled,
@@ -193,6 +195,19 @@ async def session_ws(
                 "generation capacity is busy", error_type="generation_busy"
             )
             return
+        # Keep the job's original plan so a whole-job timeout can be reported
+        # as ordinary per-model failures. The browser can then mark only the
+        # providers that still had unfinished branches, rather than showing a
+        # context-free timeout toast.
+        pending_branches: dict[tuple[int, int], str] = {}
+        for model_idx, plan in enumerate(session.model_plan):
+            if not plan.enabled:
+                continue
+            branch_count = (
+                session.global_n_branches if plan.pinned_settings else plan.n_branches
+            )
+            for branch_idx in range(branch_count):
+                pending_branches[(model_idx, branch_idx)] = plan.model
         try:
             async with asyncio.timeout(config.generation_timeout_seconds):
                 async for event in session.generate(
@@ -209,6 +224,7 @@ async def session_ws(
                             }
                         )
                     elif isinstance(event, BranchComplete):
+                        pending_branches.pop((event.model_idx, event.branch_idx), None)
                         # Push the branch and the state it lands in right
                         # away, so this continuation is selectable while its
                         # slower siblings are still streaming.
@@ -274,6 +290,9 @@ async def session_ws(
                             if finish_reason is not None:
                                 response["finish_reason"] = finish_reason
                             if failure is not None:
+                                pending_branches.pop(
+                                    (failure.model_idx, failure.branch_idx), None
+                                )
                                 response.update(
                                     model=failure.model,
                                     model_idx=failure.model_idx,
@@ -288,7 +307,18 @@ async def session_ws(
             pass
         except TimeoutError:
             session.cancel()
-            await send_error("generation timed out", error_type="generation_timeout")
+            for (model_idx, branch_idx), model in pending_branches.items():
+                record_outcome(resolve_model_id(model), ok=False, category="timeout")
+                await websocket.send_json(
+                    {
+                        "type": "generation_error",
+                        "error": "generation timed out",
+                        "model": model,
+                        "model_idx": model_idx,
+                        "branch_idx": branch_idx,
+                        "category": "timeout",
+                    }
+                )
         except Exception:
             log.error("websocket generation loop failed")
             await send_error("generation failed", error_type="generation_error")
