@@ -1,6 +1,9 @@
+import asyncio
+
 import pytest
 
 from basemode_loom.session import (
+    BranchComplete,
     GenerationCancelled,
     GenerationComplete,
     GenerationError,
@@ -1156,3 +1159,48 @@ def test_setters_leave_the_globals_alone_for_an_unpinned_entry(store):
     session.set_max_tokens(400)
     assert session.global_n_branches == 1
     assert session.global_max_tokens == 200
+
+
+@pytest.mark.asyncio
+async def test_generate_saves_each_branch_as_it_finishes(store, monkeypatch):
+    """A fast branch must not wait on a slow one to become a real child."""
+    released = asyncio.Event()
+
+    async def fake_continue(prefix, model, **kwargs):
+        if model.endswith("slow"):
+            await released.wait()
+            yield "slow branch"
+        else:
+            yield "fast branch"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.set_model_plan(
+        [
+            {"model": "fast", "n_branches": 1, "max_tokens": 50, "temperature": 0.9},
+            {"model": "slow", "n_branches": 1, "max_tokens": 50, "temperature": 0.9},
+        ]
+    )
+
+    events = []
+    agen = session.generate()
+    async for event in agen:
+        events.append(event)
+        if isinstance(event, BranchComplete):
+            # The fast branch is persisted and selectable while the slow one
+            # is still running.
+            assert "fast" in event.node.text
+            assert [child.id for child in store.children(ch[0].id)] == [event.node.id]
+            released.set()
+            break
+
+    async for event in agen:
+        events.append(event)
+
+    assert [type(event) for event in events].count(BranchComplete) == 2
+    complete = [e for e in events if isinstance(e, GenerationComplete)][0]
+    assert len(complete.new_nodes) == 2
+    assert len(store.children(ch[0].id)) == 2

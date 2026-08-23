@@ -11,6 +11,7 @@ from ..config import ServerConfig
 from ..logging_utils import get_logger
 from ..model_plan import MAX_MAX_TOKENS, MIN_MAX_TOKENS, validate_model_plan
 from ..session import (
+    BranchComplete,
     GenerationCancelled,
     GenerationComplete,
     GenerationError,
@@ -194,6 +195,25 @@ async def session_ws(
                                 "branch_idx": event.branch_idx,
                                 "slot_idx": event.slot_idx,
                                 "text": event.token,
+                            }
+                        )
+                    elif isinstance(event, BranchComplete):
+                        # Push the branch and the state it lands in right
+                        # away, so this continuation is selectable while its
+                        # slower siblings are still streaming.
+                        await websocket.send_json(
+                            {
+                                "type": "branch_complete",
+                                "model_idx": event.model_idx,
+                                "branch_idx": event.branch_idx,
+                                "slot_idx": event.slot_idx,
+                                "node": node_to_dict(event.node),
+                            }
+                        )
+                        await websocket.send_json(
+                            {
+                                "type": "state",
+                                "state": state_to_dict(session.get_state()),
                             }
                         )
                     elif isinstance(event, GenerationComplete):

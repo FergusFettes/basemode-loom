@@ -57,6 +57,21 @@ class TokenReceived:
 
 
 @dataclass(frozen=True)
+class BranchComplete:
+    """One branch finished and was saved, while others may still be running.
+
+    Emitted as each branch lands so a finished continuation is a real,
+    selectable child immediately, rather than waiting on the slowest branch
+    in the batch.
+    """
+
+    model_idx: int
+    branch_idx: int
+    slot_idx: int
+    node: Node
+
+
+@dataclass(frozen=True)
 class GenerationComplete:
     completions: list[str]
     new_nodes: list[Node]
@@ -92,7 +107,11 @@ class GenerationCancelled:
 
 
 GenerationEvent = (
-    TokenReceived | GenerationComplete | GenerationError | GenerationCancelled
+    TokenReceived
+    | BranchComplete
+    | GenerationComplete
+    | GenerationError
+    | GenerationCancelled
 )
 
 
@@ -456,7 +475,30 @@ class LoomSession:
 
         buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
         branch_errors: dict[int, ProviderDiagnostic] = {}
+        saved: dict[int, tuple[str, Node]] = {}
         cancelled = False
+
+        def finish_branch(slot_idx: int) -> Node | None:
+            """Persist one finished branch, so it is selectable straight away."""
+            if slot_idx in branch_errors:
+                return None
+            raw = "".join(buffers[slot_idx])
+            plan_entry = branch_plan[slot_idx]
+            if not normalize_completion_segment(prefix, raw).strip():
+                _model_idx, _branch_idx, plan = plan_entry
+                log.warning(
+                    "generation branch produced empty completion "
+                    f"source_node={source_node_id} model={plan.model} "
+                    f"model_idx={_model_idx} branch_idx={_branch_idx} "
+                    f"slot_idx={slot_idx}"
+                )
+                branch_errors[slot_idx] = empty_response_diagnostic()
+                return None
+            node = self._save_completions(
+                prefix, [plan_entry], [raw], parent_id=source_node_id
+            )[0]
+            saved[slot_idx] = (raw, node)
+            return node
 
         queue: asyncio.Queue[
             tuple[str, int, int, int, str | ProviderDiagnostic | None]
@@ -509,6 +551,14 @@ class LoomSession:
                 kind, slot_idx, model_idx, branch_idx, payload = item
                 if kind == "done":
                     done += 1
+                    node = finish_branch(slot_idx)
+                    if node is not None:
+                        yield BranchComplete(
+                            model_idx=model_idx,
+                            branch_idx=branch_idx,
+                            slot_idx=slot_idx,
+                            node=node,
+                        )
                 elif kind == "error":
                     assert isinstance(payload, ProviderDiagnostic)
                     branch_errors[slot_idx] = payload
@@ -530,34 +580,16 @@ class LoomSession:
                 t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
 
+        # Branches that finished before the cancel are already saved; there is
+        # no reason to throw away work the user can see is done.
         if cancelled:
             yield GenerationCancelled()
             return
 
-        successful: list[tuple[tuple[int, int, ModelPlanEntry], str]] = []
-        for slot_idx, plan_entry in enumerate(branch_plan):
-            if slot_idx in branch_errors:
-                continue
-            raw = "".join(buffers[slot_idx])
-            if not normalize_completion_segment(prefix, raw).strip():
-                _model_idx, _branch_idx, plan = plan_entry
-                log.warning(
-                    "generation branch produced empty completion "
-                    f"source_node={source_node_id} model={plan.model} "
-                    f"model_idx={_model_idx} branch_idx={_branch_idx} "
-                    f"slot_idx={slot_idx}"
-                )
-                branch_errors[slot_idx] = empty_response_diagnostic()
-                continue
-            successful.append((plan_entry, raw))
-
-        new_nodes: list[Node] = []
-        if successful:
-            plans = [entry[0] for entry in successful]
-            completions = [entry[1] for entry in successful]
-            new_nodes = self._save_completions(
-                prefix, plans, completions, parent_id=source_node_id
-            )
+        if saved:
+            in_arrival_order = [saved[slot_idx] for slot_idx in sorted(saved)]
+            completions = [raw for raw, _node in in_arrival_order]
+            new_nodes = [node for _raw, node in in_arrival_order]
             log.info(
                 "generation complete "
                 f"source_node={source_node_id} "

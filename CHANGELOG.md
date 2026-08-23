@@ -8,6 +8,12 @@ under Unreleased.
 
 ### Changed
 
+- Generation now saves each branch the moment it finishes and emits a
+  `branch_complete` event (followed by a state push over the websocket),
+  instead of holding every completion back until the slowest branch in the
+  batch returns. A finished continuation is immediately a real, selectable
+  child. Branches that finished before a cancel are kept.
+
 - A tree with no configured model plan now starts pinned to the global
   branches/tokens. `set_n_branches` and `set_max_tokens` write through a pinned
   entry to those globals, so setting them from the TUI or CLI still takes
