@@ -704,12 +704,10 @@ class LoomSession:
             )
             new_children.append(node)
 
-        if new_children:
-            self._child_path[parent_id] = len(new_children) - 1
-            self._store.set_checked_out_child(parent_id, new_children[-1].id)
-            if len(new_children) == 1 and self._current_id == parent_id:
-                self._current_id = new_children[0].id
-                self._selected_idx = 0
+        # Generating does not move the reader. Branches are saved as each one
+        # lands, so anything that checked out or descended into "the new child"
+        # here would be deciding on whichever provider happened to answer
+        # first, and would flip again as the rest arrived. The user picks.
         self._maybe_name_tree(new_children)
         return new_children
 

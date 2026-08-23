@@ -8,6 +8,13 @@ under Unreleased.
 
 ### Changed
 
+- Generating no longer moves the reader. A finished branch is saved and left
+  for the user to pick, rather than becoming the checked-out child and (when
+  the batch held one continuation) the current node. Since branches now save
+  as they land, that rule fired once per branch, so a multi-branch generation
+  handed the reader to whichever provider answered first and flipped the
+  checked-out child again as the rest arrived.
+
 - One websocket connection may now have several generations in flight at once
   (`concurrent_generations_per_session`, default 3) instead of being locked to
   one at a time, so a slow provider in one place in the tree no longer blocks

@@ -1285,3 +1285,78 @@ async def test_a_branch_that_normalizes_away_is_recorded_as_empty(store, monkeyp
     assert observed["attempts"] == 1
     assert observed["failures"] == 1
     assert observed["categories"] == {"empty_response": 1}
+
+
+# --- generation never moves the reader ---
+
+
+@pytest.mark.asyncio
+async def test_a_single_branch_generation_leaves_the_current_node_put(
+    store, monkeypatch
+):
+    async def fake_continue(prefix, model, **kwargs):
+        yield " onward"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    assert session._current_id == ch[0].id
+    assert len(store.children(ch[0].id)) == 1
+    assert store.get_checked_out_child_id(ch[0].id) is None
+
+
+@pytest.mark.asyncio
+async def test_branches_landing_one_by_one_never_check_themselves_out(
+    store, monkeypatch
+):
+    """Each branch is saved on its own, so the old single-child rule fired for
+    every one of them and whichever provider answered first took the reader."""
+
+    async def fake_continue(prefix, model, **kwargs):
+        yield " onward"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 4
+
+    async for _event in session.generate():
+        # Mid-flight too: not just where it settles at the end.
+        assert session._current_id == ch[0].id
+
+    assert len(store.children(ch[0].id)) == 4
+    assert store.get_checked_out_child_id(ch[0].id) is None
+
+
+@pytest.mark.asyncio
+async def test_generating_does_not_disturb_an_existing_checkout(store, monkeypatch):
+    async def fake_continue(prefix, model, **kwargs):
+        yield " onward"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    parent, ch = store.save_continuations(
+        "Prompt",
+        ["first", "second"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    store.set_checked_out_child(parent.id, ch[0].id)
+    session = LoomSession(store, parent.id)
+    session.n_branches = 2
+
+    async for _event in session.generate():
+        pass
+
+    assert store.get_checked_out_child_id(parent.id) == ch[0].id
+    assert session._current_id == parent.id
