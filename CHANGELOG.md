@@ -6,6 +6,13 @@ under Unreleased.
 
 ## Unreleased
 
+### Changed
+
+- A tree with no configured model plan now starts pinned to the global
+  branches/tokens. `set_n_branches` and `set_max_tokens` write through a pinned
+  entry to those globals, so setting them from the TUI or CLI still takes
+  effect.
+
 ### Fixed
 
 - Editing a root node's text no longer starts a whole new tree containing only

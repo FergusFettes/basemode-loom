@@ -333,12 +333,21 @@ guards. Provider exception details are not returned to clients.
 {"type": "generate"}
 {"type": "cancel"}
 {"type": "edit", "original": "...", "edited": "..."}
+{"type": "edit_node", "node_id": "...", "text": "..."}
+{"type": "add_node", "parent_id": "...", "text": "..."}
 {"type": "bookmark_toggle"}
 {"type": "bookmark_next"}
 {"type": "view_toggle"}
 {"type": "hoist_toggle"}
 {"type": "model_names_toggle"}
 ```
+
+`edit` rewrites the whole current lineage and forks wherever the text changed.
+`edit_node` targets one node instead: it forks that node alone (rewriting the
+root in place, since a root has nothing to fork from) and checks the result
+out. `add_node` hangs a hand-written child off `parent_id`, tagged
+`manual`/`manual` rather than a model, and checks it out. Both reply with a
+`state` message.
 
 Config updates use `set_params`:
 

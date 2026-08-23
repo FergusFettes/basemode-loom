@@ -176,12 +176,15 @@ class LoomSession:
             self._model_plan = self._parse_model_plan(tree.model_plan)
         else:
             self._model_plan = [
+                # A tree that has never had a plan configured follows the
+                # global branches/tokens until the user says otherwise.
                 ModelPlanEntry(
                     model=str(get_default_model() or "gpt-4o-mini"),
                     max_tokens=200,
                     temperature=0.9,
                     n_branches=1,
                     enabled=True,
+                    pinned_settings=True,
                 )
             ]
 
@@ -842,6 +845,27 @@ class LoomSession:
         self._checkout_node(new_node.id)
         return new_node
 
+    def add_child_node(self, parent_id: str, text: str) -> Node | None:
+        """Hang a hand-written child off ``parent_id`` and check it out.
+
+        The counterpart to generation: the text comes from the user rather
+        than a model, so the node is tagged ``manual`` instead of inheriting
+        the parent's model.
+        """
+        parent = self._store.get(parent_id)
+        if parent is None:
+            return None
+        new_node = self._store.add_child(
+            parent.id,
+            text,
+            model="manual",
+            strategy="manual",
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+        )
+        self._checkout_node(new_node.id)
+        return new_node
+
     def update_context(self, context: str) -> None:
         node = self._store.get(self._current_id)
         if node is None:
@@ -901,10 +925,15 @@ class LoomSession:
         if not self._model_plan:
             return
         p = self._model_plan[0]
+        clamped = max(MIN_MAX_TOKENS, min(max_tokens, MAX_MAX_TOKENS))
+        # A pinned entry generates with the global value, so write through the
+        # pin rather than setting a number that generation would ignore.
+        if p.pinned_settings:
+            self.global_max_tokens = clamped
         self._model_plan[0] = ModelPlanEntry(
             model=p.model,
             n_branches=p.n_branches,
-            max_tokens=max(MIN_MAX_TOKENS, min(max_tokens, MAX_MAX_TOKENS)),
+            max_tokens=clamped,
             temperature=p.temperature,
             enabled=p.enabled,
             pinned_settings=p.pinned_settings,
@@ -914,6 +943,8 @@ class LoomSession:
         if not self._model_plan:
             return
         per_model = max(1, n)
+        if any(p.pinned_settings for p in self._model_plan if p.enabled):
+            self.global_n_branches = per_model
         self._model_plan = [
             ModelPlanEntry(
                 model=p.model,

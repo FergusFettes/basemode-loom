@@ -135,7 +135,7 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
                 "max_tokens": 600,
                 "temperature": 0.7,
                 "enabled": True,
-                "pinned_settings": False,
+                "pinned_settings": True,
             }
         ]
         assert "model" not in root_node["metadata"]

@@ -591,7 +591,7 @@ def test_save_persists_model_and_tokens(store):
             "n_branches": 3,
             "temperature": 0.9,
             "enabled": True,
-            "pinned_settings": False,
+            "pinned_settings": True,
         }
     ]
     assert tree.show_model_names is True
@@ -1113,3 +1113,46 @@ async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch
     assert state.tree_total_tokens == 19
     assert state.tree_cost_usd == pytest.approx(0.00123)
     assert state.tree_pricing_complete is True
+
+
+def test_default_model_plan_is_pinned_to_global_settings(store):
+    """A tree with no configured plan follows the global branches/tokens."""
+    root, ch = store.save_continuations(
+        "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    assert session.model_plan[0].pinned_settings is True
+
+
+def test_setters_write_through_a_pinned_entry_to_the_globals(store):
+    """A pinned entry generates with the globals, so the setters must move them.
+
+    Otherwise the TUI and CLI, which set branches and tokens on the plan entry,
+    would silently generate with the global values instead.
+    """
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    assert session.model_plan[0].pinned_settings is True
+
+    session.set_n_branches(3)
+    session.set_max_tokens(400)
+    assert session.global_n_branches == 3
+    assert session.global_max_tokens == 400
+
+
+def test_setters_leave_the_globals_alone_for_an_unpinned_entry(store):
+    _, ch = store.save_continuations(
+        "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 200, "temperature": 0.9}]
+    )
+    assert session.model_plan[0].pinned_settings is False
+
+    session.set_n_branches(3)
+    session.set_max_tokens(400)
+    assert session.global_n_branches == 1
+    assert session.global_max_tokens == 200

@@ -392,6 +392,34 @@ async def session_ws(
                 )
                 await push_state()
 
+            elif msg_type == "edit_node":
+                node_id = data.get("node_id")
+                text = data.get("text")
+                if not isinstance(node_id, str) or not node_id:
+                    await send_error("edit_node requires a node_id")
+                    continue
+                if not isinstance(text, str):
+                    await send_error("edit_node requires text")
+                    continue
+                # A no-op edit also returns None, so an unchanged tree here is
+                # success, not an error; just resend state either way.
+                session.edit_node_text(node_id, text)
+                await push_state()
+
+            elif msg_type == "add_node":
+                parent_id = data.get("parent_id")
+                text = data.get("text")
+                if not isinstance(parent_id, str) or not parent_id:
+                    await send_error("add_node requires a parent_id")
+                    continue
+                if not isinstance(text, str):
+                    await send_error("add_node requires text")
+                    continue
+                if session.add_child_node(parent_id, text) is None:
+                    await send_error(f"unknown parent node: {parent_id!r}")
+                    continue
+                await push_state()
+
             elif msg_type == "bookmark_toggle":
                 session.toggle_bookmark()
                 await push_state()

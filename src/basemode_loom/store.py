@@ -29,6 +29,8 @@ _CONFIG_METADATA_KEYS = {
     "temperature",
 }
 
+# A tree that has never had a plan configured follows the global
+# branches/tokens until the user unpins it.
 _DEFAULT_MODEL_PLAN = [
     {
         "model": "gpt-4o-mini",
@@ -36,6 +38,7 @@ _DEFAULT_MODEL_PLAN = [
         "max_tokens": 200,
         "temperature": 0.9,
         "enabled": True,
+        "pinned_settings": True,
     }
 ]
 
