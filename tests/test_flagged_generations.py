@@ -103,7 +103,11 @@ def test_boundary_correction_enters_the_flagged_generation_corpus(corpus) -> Non
     with _client(corpus) as client:
         body = client.get("/api/flags").json()
     assert body["flags"][0]["in_place_edits"] == [
-        {"kind": "remove_leading_space", "before": " the sea opened out.", "after": "the sea opened out."}
+        {
+            "kind": "remove_leading_space",
+            "before": " the sea opened out.",
+            "after": "the sea opened out.",
+        }
     ]
     assert body["by_model"]["deepseek/deepseek-v4-flash"]["flagged"] == 1
 
