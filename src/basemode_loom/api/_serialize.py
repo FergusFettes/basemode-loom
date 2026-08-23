@@ -31,6 +31,8 @@ def tree_to_dict(tree: Tree) -> dict[str, Any]:
         "name": tree.name,
         "show_model_names": tree.show_model_names,
         "rewind_split_tokens": tree.rewind_split_tokens,
+        "global_max_tokens": tree.global_max_tokens,
+        "global_n_branches": tree.global_n_branches,
         "model_plan": tree.model_plan,
         "created_at": tree.created_at,
         "updated_at": tree.updated_at,
@@ -52,6 +54,8 @@ def state_to_dict(state: SessionState) -> dict[str, Any]:
         "max_tokens": state.max_tokens,
         "temperature": state.temperature,
         "n_branches": state.n_branches,
+        "global_max_tokens": state.global_max_tokens,
+        "global_n_branches": state.global_n_branches,
         "rewind_split_tokens": bool(state.rewind_split_tokens),
         "model_plan": [
             {

@@ -17,6 +17,8 @@ from .model_plan import normalize_model_plan
 
 _CONFIG_METADATA_KEYS = {
     "context",
+    "global_max_tokens",
+    "global_n_branches",
     "max_tokens",
     "model",
     "model_plan",
@@ -72,6 +74,11 @@ def _normalize_root_metadata_config(metadata: dict[str, Any]) -> dict[str, Any]:
     show_model_names = config.get("show_model_names", metadata.get("show_model_names"))
     if isinstance(show_model_names, bool):
         new_config["show_model_names"] = show_model_names
+
+    for key in ("global_max_tokens", "global_n_branches"):
+        value = config.get(key, metadata.get(key))
+        if isinstance(value, int) and not isinstance(value, bool):
+            new_config[key] = value
 
     if model_plan:
         new_config["model_plan"] = model_plan
@@ -129,10 +136,32 @@ def _tree_settings_from_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         rewind_split_tokens = 0
 
+    first_plan = model_plan[0]
+    try:
+        global_max_tokens = int(
+            config.get(
+                "global_max_tokens",
+                metadata.get("global_max_tokens", first_plan["max_tokens"]),
+            )
+        )
+    except (TypeError, ValueError):
+        global_max_tokens = int(first_plan["max_tokens"])
+    try:
+        global_n_branches = int(
+            config.get(
+                "global_n_branches",
+                metadata.get("global_n_branches", first_plan["n_branches"]),
+            )
+        )
+    except (TypeError, ValueError):
+        global_n_branches = int(first_plan["n_branches"])
+
     return {
         "name": metadata.get("name"),
         "show_model_names": bool(show_model_names),
         "rewind_split_tokens": max(0, rewind_split_tokens),
+        "global_max_tokens": max(10, min(global_max_tokens, 8000)),
+        "global_n_branches": max(1, min(global_n_branches, 64)),
         "model_plan": model_plan,
     }
 
@@ -170,6 +199,8 @@ class Tree:
     name: str | None
     show_model_names: bool
     rewind_split_tokens: int
+    global_max_tokens: int
+    global_n_branches: int
     model_plan: list[dict[str, Any]]
     created_at: str
     updated_at: str
@@ -266,9 +297,9 @@ class GenerationStore:
                 """
                 INSERT INTO trees (
                     id, current_node_id, name, show_model_names,
-                    rewind_split_tokens, model_plan_json, created_at, updated_at,
-                    metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    rewind_split_tokens, global_max_tokens, global_n_branches,
+                    model_plan_json, created_at, updated_at, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     node_id,
@@ -276,6 +307,8 @@ class GenerationStore:
                     settings["name"],
                     int(settings["show_model_names"]),
                     settings["rewind_split_tokens"],
+                    settings["global_max_tokens"],
+                    settings["global_n_branches"],
                     json.dumps(settings["model_plan"], sort_keys=True),
                     node.created_at,
                     node.created_at,
@@ -400,6 +433,8 @@ class GenerationStore:
         model_plan: list[dict[str, Any]] | None = None,
         show_model_names: bool | None = None,
         rewind_split_tokens: int | None = None,
+        global_max_tokens: int | None = None,
+        global_n_branches: int | None = None,
         name: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> Tree:
@@ -414,6 +449,8 @@ class GenerationStore:
                 SET model_plan_json = ?,
                     show_model_names = ?,
                     rewind_split_tokens = ?,
+                    global_max_tokens = ?,
+                    global_n_branches = ?,
                     name = ?,
                     updated_at = ?,
                     metadata_json = ?
@@ -434,6 +471,12 @@ class GenerationStore:
                         if rewind_split_tokens is not None
                         else tree.rewind_split_tokens
                     ),
+                    global_max_tokens
+                    if global_max_tokens is not None
+                    else tree.global_max_tokens,
+                    global_n_branches
+                    if global_n_branches is not None
+                    else tree.global_n_branches,
                     name if name is not None else tree.name,
                     _now(),
                     json.dumps(merged_metadata, sort_keys=True),
@@ -658,9 +701,10 @@ class GenerationStore:
                         """
                         INSERT OR IGNORE INTO trees (
                             id, current_node_id, name, show_model_names,
-                            rewind_split_tokens, model_plan_json, created_at,
+                            rewind_split_tokens, global_max_tokens,
+                            global_n_branches, model_plan_json, created_at,
                             updated_at, metadata_json
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             tree_id,
@@ -668,6 +712,8 @@ class GenerationStore:
                             settings["name"],
                             int(settings["show_model_names"]),
                             settings["rewind_split_tokens"],
+                            settings["global_max_tokens"],
+                            settings["global_n_branches"],
                             json.dumps(settings["model_plan"], sort_keys=True),
                             node.created_at,
                             _now(),
@@ -1111,6 +1157,8 @@ class GenerationStore:
             name=row["name"],
             show_model_names=bool(row["show_model_names"]),
             rewind_split_tokens=int(row["rewind_split_tokens"] or 0),
+            global_max_tokens=int(row["global_max_tokens"] or 200),
+            global_n_branches=int(row["global_n_branches"] or 1),
             model_plan=model_plan,
             created_at=row["created_at"],
             updated_at=row["updated_at"],

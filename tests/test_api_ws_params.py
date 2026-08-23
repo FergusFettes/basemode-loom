@@ -41,6 +41,8 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
                     "max_tokens": 512,
                     "temperature": 0.4,
                     "n_branches": 3,
+                    "global_max_tokens": 900,
+                    "global_n_branches": 5,
                     "context": "world facts",
                     "rewind_split_tokens": True,
                     "show_model_names": False,
@@ -61,6 +63,8 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             assert state["max_tokens"] == 512
             assert state["temperature"] == 0.4
             assert state["n_branches"] == 3
+            assert state["global_max_tokens"] == 900
+            assert state["global_n_branches"] == 5
             assert state["context"] == "world facts"
             assert state["rewind_split_tokens"] is True
             assert state["show_model_names"] is False
@@ -71,6 +75,8 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
             assert state["max_tokens"] == 512
             assert state["temperature"] == 0.4
             assert state["n_branches"] == 3
+            assert state["global_max_tokens"] == 900
+            assert state["global_n_branches"] == 5
             assert state["context"] == "world facts"
             assert state["rewind_split_tokens"] is True
             assert state["show_model_names"] is False
@@ -82,6 +88,8 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
     assert context.text == "world facts"
     assert tree.show_model_names is False
     assert tree.rewind_split_tokens == 1
+    assert tree.global_max_tokens == 900
+    assert tree.global_n_branches == 5
     assert tree.model_plan == [
         {
             "model": "openai/gpt-4o-mini",
@@ -149,6 +157,8 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
                     "type": "set_params",
                     "temperature": 9,
                     "max_tokens": "a lot",
+                    "global_max_tokens": 9000,
+                    "global_n_branches": 0,
                     "rewind_split_tokens": 1,
                     "persist": False,
                 }
@@ -161,6 +171,8 @@ def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
                 msg["fields"]["max_tokens"] == "must be an integer between 10 and 8000"
             )
             assert msg["fields"]["rewind_split_tokens"] == "must be a boolean"
+            assert msg["fields"]["global_max_tokens"] == "must be an integer between 10 and 8000"
+            assert msg["fields"]["global_n_branches"] == "must be an integer between 1 and 64"
             assert msg["fields"]["persist"] == "only persist=true is supported"
 
     assert store.tree_for_node(root.id).model_plan[0]["max_tokens"] == 200

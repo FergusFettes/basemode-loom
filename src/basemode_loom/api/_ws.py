@@ -47,6 +47,8 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
         "max_tokens",
         "temperature",
         "n_branches",
+        "global_max_tokens",
+        "global_n_branches",
         "rewind_split_tokens",
         "context",
         "show_model_names",
@@ -97,6 +99,22 @@ def _validate_set_params(data: dict[str, Any]) -> tuple[dict[str, Any], dict[str
             errors["n_branches"] = "must be an integer between 1 and 64"
         else:
             patch["n_branches"] = value
+
+    if "global_max_tokens" in data:
+        value = data["global_max_tokens"]
+        if not _is_int(value) or value < MIN_MAX_TOKENS or value > MAX_MAX_TOKENS:
+            errors["global_max_tokens"] = (
+                f"must be an integer between {MIN_MAX_TOKENS} and {MAX_MAX_TOKENS}"
+            )
+        else:
+            patch["global_max_tokens"] = value
+
+    if "global_n_branches" in data:
+        value = data["global_n_branches"]
+        if not _is_int(value) or value < 1 or value > 64:
+            errors["global_n_branches"] = "must be an integer between 1 and 64"
+        else:
+            patch["global_n_branches"] = value
 
     if "rewind_split_tokens" in data:
         value = data["rewind_split_tokens"]

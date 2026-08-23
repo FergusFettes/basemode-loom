@@ -8,7 +8,7 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
-LATEST_USER_VERSION = 4
+LATEST_USER_VERSION = 5
 
 
 def initialize(
@@ -29,6 +29,8 @@ def initialize(
             name TEXT,
             show_model_names INTEGER NOT NULL DEFAULT 1,
             rewind_split_tokens INTEGER NOT NULL DEFAULT 0,
+            global_max_tokens INTEGER NOT NULL DEFAULT 200,
+            global_n_branches INTEGER NOT NULL DEFAULT 1,
             model_plan_json TEXT NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -38,6 +40,8 @@ def initialize(
         """
     )
     ensure_column(conn, "trees", "archived", "INTEGER NOT NULL DEFAULT 0")
+    ensure_column(conn, "trees", "global_max_tokens", "INTEGER NOT NULL DEFAULT 200")
+    ensure_column(conn, "trees", "global_n_branches", "INTEGER NOT NULL DEFAULT 1")
     conn.execute(
         """
         CREATE TABLE IF NOT EXISTS nodes (

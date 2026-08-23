@@ -859,6 +859,48 @@ async def test_generate_multiple_branches(store, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_generate_uses_globals_only_for_pinned_models(store, monkeypatch):
+    calls: list[tuple[str, int]] = []
+
+    async def fake_continue(prefix, model, **kwargs):
+        calls.append((model, kwargs["max_tokens"]))
+        yield "generated"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    root = store.create_root("Prompt")
+    session = LoomSession(store, root.id)
+    session.set_model_plan(
+        [
+            {
+                "model": "pinned-model",
+                "n_branches": 1,
+                "max_tokens": 20,
+                "temperature": 0.9,
+                "enabled": True,
+                "pinned_settings": True,
+            },
+            {
+                "model": "private-model",
+                "n_branches": 3,
+                "max_tokens": 30,
+                "temperature": 0.9,
+                "enabled": True,
+                "pinned_settings": False,
+            },
+        ]
+    )
+    session.global_n_branches = 2
+    session.global_max_tokens = 200
+
+    async for _event in session.generate():
+        pass
+
+    assert calls.count(("pinned-model", 200)) == 2
+    assert calls.count(("private-model", 30)) == 3
+    assert session.model_plan[0].max_tokens == 20
+
+
+@pytest.mark.asyncio
 async def test_generate_shuffles_completion_order(store, monkeypatch):
     async def fake_continue(prefix, model, **kwargs):
         yield "x"

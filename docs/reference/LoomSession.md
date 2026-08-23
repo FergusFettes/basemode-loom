@@ -29,6 +29,8 @@ LoomSession(store: GenerationStore, start_id: str)
 | `max_tokens` | `int` | Current max tokens |
 | `temperature` | `float` | Current temperature |
 | `n_branches` | `int` | Number of branches to generate |
+| `global_max_tokens` | `int` | Token limit used by pinned model-plan entries |
+| `global_n_branches` | `int` | Branch count used by pinned model-plan entries |
 | `rewind_split_tokens` | `bool` | Whether generation rewinds short trailing word fragments |
 | `context` | `str` | System prompt / context |
 | `root_id` | `str` | Root node ID |

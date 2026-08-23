@@ -11,7 +11,7 @@ import asyncio
 import difflib
 import random
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Any, Literal
 
@@ -128,9 +128,11 @@ class SessionState:
     max_tokens: int
     temperature: float
     n_branches: int
-    rewind_split_tokens: bool
     context: str
     root_id: str
+    global_max_tokens: int = 200
+    global_n_branches: int = 1
+    rewind_split_tokens: bool = False
     view_mode: Literal["branch", "tree"] = "branch"
     prompt_entries: tuple[PromptEntry, ...] = field(default_factory=tuple)
     hoisted_node_id: str | None = None
@@ -184,6 +186,8 @@ class LoomSession:
             ]
 
         self.rewind_split_tokens: int = tree.rewind_split_tokens
+        self.global_max_tokens: int = tree.global_max_tokens
+        self.global_n_branches: int = tree.global_n_branches
         self.view_mode: Literal["branch", "tree"] = "branch"
         self._hoisted_id: str | None = None
         self.show_model_names: bool = tree.show_model_names
@@ -237,6 +241,8 @@ class LoomSession:
             max_tokens=self.max_tokens,
             temperature=self.temperature,
             n_branches=self.n_branches,
+            global_max_tokens=self.global_max_tokens,
+            global_n_branches=self.global_n_branches,
             rewind_split_tokens=bool(self.rewind_split_tokens),
             model_plan=self.model_plan,
             context=self._current_context(node),
@@ -401,8 +407,17 @@ class LoomSession:
         for model_idx, plan in enumerate(self._model_plan):
             if not plan.enabled:
                 continue
-            for branch_idx in range(plan.n_branches):
-                branch_plan.append((model_idx, branch_idx, plan))
+            effective_plan = (
+                replace(
+                    plan,
+                    n_branches=self.global_n_branches,
+                    max_tokens=self.global_max_tokens,
+                )
+                if plan.pinned_settings
+                else plan
+            )
+            for branch_idx in range(effective_plan.n_branches):
+                branch_plan.append((model_idx, branch_idx, effective_plan))
         random.shuffle(branch_plan)
 
         if not branch_plan:
@@ -802,6 +817,13 @@ class LoomSession:
             self.temperature = float(config_patch["temperature"])
         if "n_branches" in config_patch:
             self.set_n_branches(int(config_patch["n_branches"]))
+        if "global_max_tokens" in config_patch:
+            self.global_max_tokens = max(
+                MIN_MAX_TOKENS,
+                min(int(config_patch["global_max_tokens"]), MAX_MAX_TOKENS),
+            )
+        if "global_n_branches" in config_patch:
+            self.global_n_branches = max(1, min(int(config_patch["global_n_branches"]), 64))
         if "rewind_split_tokens" in config_patch:
             self.rewind_split_tokens = int(bool(config_patch["rewind_split_tokens"]))
         if "show_model_names" in config_patch:
@@ -1010,6 +1032,8 @@ class LoomSession:
             root_node.tree_id,
             show_model_names=self.show_model_names,
             rewind_split_tokens=self.rewind_split_tokens,
+            global_max_tokens=self.global_max_tokens,
+            global_n_branches=self.global_n_branches,
             model_plan=[p.as_dict() for p in self._model_plan],
         )
 

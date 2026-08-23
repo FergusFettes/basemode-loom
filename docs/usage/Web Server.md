@@ -349,6 +349,8 @@ Config updates use `set_params`:
   "max_tokens": 200,
   "temperature": 0.9,
   "n_branches": 3,
+  "global_max_tokens": 200,
+  "global_n_branches": 3,
   "context": "",
   "rewind_split_tokens": true,
   "show_model_names": true,
@@ -371,6 +373,8 @@ Validation constraints:
 - `max_tokens`: `50`-`8000`
 - `temperature`: `0.0`-`2.0`
 - `n_branches`: `1`-`64`
+- `global_max_tokens`: `10`-`8000`
+- `global_n_branches`: `1`-`64`
 - `rewind_split_tokens`: boolean
 - `model_plan`: non-empty list
 

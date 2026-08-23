@@ -137,6 +137,7 @@ def test_store_migrates_root_config_metadata_to_model_plan(tmp_path) -> None:
             "max_tokens": 123,
             "temperature": 0.4,
             "enabled": True,
+            "pinned_settings": False,
         }
     ]
     assert migrated.context_id is not None
@@ -178,6 +179,7 @@ def test_import_nodes_normalizes_root_config_metadata(tmp_path) -> None:
             "max_tokens": 123,
             "temperature": 0.4,
             "enabled": True,
+            "pinned_settings": False,
         }
     ]
 
