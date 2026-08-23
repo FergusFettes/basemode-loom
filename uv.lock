@@ -202,7 +202,7 @@ wheels = [
 
 [[package]]
 name = "basemode"
-version = "0.1.19"
+version = "0.1.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -212,9 +212,9 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ee/5a/1264edaa436be711fd80312d1e3c2d7827753c8b085cfeffeaadef439bd7/basemode-0.1.19.tar.gz", hash = "sha256:c10a3fa5ee18a87ef849ac0d1830d054fb4ee1a1023eb494f1bb451542a42507", size = 276498, upload-time = "2026-08-23T07:08:05.444Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/e1/d678c0a92dd4e187af901b150ea44b96d7f2fab07f002c3b6f7967517f01/basemode-0.1.21.tar.gz", hash = "sha256:1de10f31dadb4eae05ba248b0f013859ae7b26d1acfe3ca0fe432d709f42d6e0", size = 279454, upload-time = "2026-08-23T13:54:37.776Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/fa/7a70f241a381c6b281ca34e63232231b0a0078e41f02e5aedc60cc0a51f4/basemode-0.1.19-py3-none-any.whl", hash = "sha256:97b7cbbaa82db33c4267e9b2eadbc09d8742fe095f620fa13400aa38ba8d9f7a", size = 66732, upload-time = "2026-08-23T07:08:04.044Z" },
+    { url = "https://files.pythonhosted.org/packages/8d/65/3d93023802b2d515382f2002e1e533469a678e3534b426322ff15afbf6ae/basemode-0.1.21-py3-none-any.whl", hash = "sha256:03f628516bd2a0a6407a0ef93b13f8c66b1e4dd3a58244a63ebdf3091e8bd562", size = 68384, upload-time = "2026-08-23T13:54:36.288Z" },
 ]
 
 [[package]]
@@ -252,7 +252,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "basemode", specifier = ">=0.1.19" },
+    { name = "basemode", specifier = ">=0.1.21" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "mlx-embeddings", marker = "extra == 'embed-mlx'", specifier = ">=0.0.3" },
