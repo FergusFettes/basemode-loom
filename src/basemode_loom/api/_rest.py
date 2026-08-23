@@ -663,6 +663,9 @@ def list_flagged_generations(
                 "prefix": prefix[-prefix_chars:] if prefix_chars else "",
                 "prefix_truncated": len(prefix) > prefix_chars,
                 "text": node.text,
+                # Only present when healing rewrote the opening, which is
+                # exactly when the seam is worth a second look.
+                "boundary": node.metadata.get("boundary"),
             }
         )
     return {"flags": entries, "by_model": store.flag_counts_by_model()}

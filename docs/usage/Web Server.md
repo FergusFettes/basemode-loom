@@ -387,7 +387,8 @@ GET /api/flags?model=deepseek/deepseek-v4-flash&limit=20&prefix_chars=600
       "created_at": "2026-08-23T18:41:02Z",
       "prefix": "...the ship rounded the headland and",
       "prefix_truncated": true,
-      "text": "the sea opened out."
+      "text": "the sea opened out.",
+      "boundary": {"raw": " wield both. The sculptor does", "streamed": "wield both. The sculptor does"}
     }
   ],
   "by_model": {
@@ -402,6 +403,15 @@ between them reads directly — which is where a botched first word shows up.
 just the parent node's own text), trimmed to `prefix_chars`. `by_model`
 counts flags against generated nodes for the same model, because three flags
 out of three is a different signal from three out of three hundred.
+
+`boundary` records the opening of the generation before it was healed, and is
+present only when healing rewrote it — which is rare, so its presence is
+itself a signal. `raw` is what the provider's stream opened with and
+`streamed` is what survived basemode's stream repair; the node's own `text` is
+the third point. Together they say whether a botched seam came from the model
+or from the repair, which cannot be reconstructed afterwards from the stored
+text alone. Nothing is stored for the overwhelming majority of generations,
+where all three agree.
 
 Unlike ratings and health, flags live in the corpus database rather than in
 basemode's config, because the evidence does: a flag is worth nothing without

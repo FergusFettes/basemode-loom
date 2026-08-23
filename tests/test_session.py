@@ -1360,3 +1360,99 @@ async def test_generating_does_not_disturb_an_existing_checkout(store, monkeypat
 
     assert store.get_checked_out_child_id(parent.id) == ch[0].id
     assert session._current_id == parent.id
+
+
+# --- boundary provenance ---
+
+
+@pytest.mark.asyncio
+async def test_a_healed_boundary_records_what_the_provider_sent(store, monkeypatch):
+    """A mid-word seam: the space arrives in the stream and healing joins it up.
+
+    Without the record there is no way to tell afterwards whether the model
+    sent " ice" and the repair closed the gap, or the model sent "ice".
+    """
+
+    async def fake_continue(prefix, model, on_raw_head=None, **kwargs):
+        if on_raw_head is not None:
+            on_raw_head(" ice, but of a kind of cognitive")
+        yield " ice, but of a kind of cognitive"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "It was not born of laziness or",
+        [" coward"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    child = store.children(ch[0].id)[0]
+    boundary = child.metadata.get("boundary")
+    assert boundary is not None, "healing changed the opening, so it must be recorded"
+    assert boundary["raw"] == " ice, but of a kind of cognitive"
+    assert child.text.startswith("ice,"), "the space was healed away"
+
+
+@pytest.mark.asyncio
+async def test_an_untouched_boundary_records_nothing(store, monkeypatch):
+    async def fake_continue(prefix, model, on_raw_head=None, **kwargs):
+        if on_raw_head is not None:
+            on_raw_head(" onward we go")
+        yield " onward we go"
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 1
+
+    async for _event in session.generate():
+        pass
+
+    child = store.children(ch[0].id)[0]
+    assert child.text == " onward we go"
+    assert "boundary" not in child.metadata
+
+
+@pytest.mark.asyncio
+async def test_each_branch_keeps_its_own_opening(store, monkeypatch):
+    """Branches run concurrently, so a shared sink would cross the wires."""
+    heads = iter([" ice, but of a kind of cognitive", " hygiene of its own making"])
+
+    async def fake_continue(prefix, model, on_raw_head=None, **kwargs):
+        head = next(heads)
+        if on_raw_head is not None:
+            on_raw_head(head)
+        yield head
+
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    _, ch = store.save_continuations(
+        "It was not born of laziness or",
+        [" coward"],
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    session = LoomSession(store, ch[0].id)
+    session.n_branches = 2
+
+    async for _event in session.generate():
+        pass
+
+    children = store.children(ch[0].id)
+    joined = [c for c in children if c.text.startswith("ice,")]
+    left_alone = [c for c in children if c.text.startswith(" hygiene")]
+    assert len(joined) == 1 and len(left_alone) == 1
+    # Only the branch healing rewrote carries the record, and it carries its
+    # own opening rather than the other branch's.
+    assert joined[0].metadata["boundary"]["raw"] == " ice, but of a kind of cognitive"
+    assert "boundary" not in left_alone[0].metadata

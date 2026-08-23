@@ -8,6 +8,13 @@ under Unreleased.
 
 ### Added
 
+- A generated node records the opening of its stream under `boundary` when
+  basemode's healing rewrote it — `raw` as the provider sent it, `streamed`
+  as the stream repair passed it on — so a botched seam can be attributed to
+  the model or to the repair after the fact. Nothing is stored when healing
+  left the opening alone, which is the overwhelming majority of generations.
+  Surfaced on `GET /api/flags`.
+
 - A generation can be flagged as bad: `flag_node` over the websocket sets
   `flagged` on the node the way a bookmark does, and `GET /api/flags` reads
   the flagged ones back paired with the text each model was continuing from,

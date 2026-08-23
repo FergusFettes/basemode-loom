@@ -44,6 +44,31 @@ _ATTACHES_TO_PREVIOUS_WORD_RE = re.compile(
 )
 
 
+#: How much of a generation's opening is kept when healing changed it.
+BOUNDARY_HEAD_CHARS = 32
+
+
+def _boundary_metadata(
+    raw_head: str | None, streamed: str, normalized: str
+) -> dict[str, Any]:
+    """Record the opening of a generation, but only when healing rewrote it.
+
+    Three points tell a seam defect apart: what the provider's stream opened
+    with, what basemode's stream repair passed on, and what was finally
+    stored. The third is the node's own text, so only the first two need
+    keeping — and only when they differ from the result, which is the whole
+    point. Healing leaves the overwhelming majority of generations alone, and
+    a field that is almost always a no-op is one nobody reads.
+    """
+    if raw_head is None:
+        return {}
+    head = normalized[:BOUNDARY_HEAD_CHARS]
+    streamed_head = streamed[:BOUNDARY_HEAD_CHARS]
+    if raw_head == streamed_head == head:
+        return {}
+    return {"boundary": {"raw": raw_head, "streamed": streamed_head}}
+
+
 # ---------------------------------------------------------------------------
 # Events emitted during generate()
 # ---------------------------------------------------------------------------
@@ -499,6 +524,10 @@ class LoomSession:
                     return
 
         buffers: list[list[str]] = [[] for _ in range(len(branch_plan))]
+        # What each provider's stream opened with, before basemode's healing
+        # touched it. Kept per branch so a seam defect can be attributed to
+        # the model or to the repair long after the stream is gone.
+        raw_heads: list[str | None] = [None] * len(branch_plan)
         branch_errors: dict[int, ProviderDiagnostic] = {}
         saved: dict[int, tuple[str, Node]] = {}
         cancelled = False
@@ -527,7 +556,11 @@ class LoomSession:
                 return None
             record_outcome(resolve_model_id(plan_entry[2].model), ok=True)
             node = self._save_completions(
-                prefix, [plan_entry], [raw], parent_id=source_node_id
+                prefix,
+                [plan_entry],
+                [raw],
+                parent_id=source_node_id,
+                raw_heads=[raw_heads[slot_idx]],
             )[0]
             saved[slot_idx] = (raw, node)
             return node
@@ -539,6 +572,9 @@ class LoomSession:
         async def run_branch(
             slot_idx: int, model_idx: int, branch_idx: int, plan: ModelPlanEntry
         ) -> None:
+            def capture_head(head: str, slot_idx: int = slot_idx) -> None:
+                raw_heads[slot_idx] = head
+
             try:
                 async for tok in continue_text(
                     prefix,
@@ -552,6 +588,7 @@ class LoomSession:
                     # normalization, which basemode cannot see, so the outcome
                     # is recorded here instead of once at each layer.
                     record_health=False,
+                    on_raw_head=capture_head,
                 ):
                     if cancel_token.is_set():
                         break
@@ -675,10 +712,12 @@ class LoomSession:
         completions: list[str],
         *,
         parent_id: str,
+        raw_heads: list[str | None] | None = None,
     ) -> list[Node]:
         new_children: list[Node] = []
-        for (model_idx, branch_idx, plan), completion in zip(
-            branch_plan, completions, strict=False
+        heads = raw_heads or [None] * len(completions)
+        for (model_idx, branch_idx, plan), completion, raw_head in zip(
+            branch_plan, completions, heads, strict=False
         ):
             resolved = resolve_model_id(plan.model)
             strategy_name = detect_strategy(resolved, None).name
@@ -700,6 +739,7 @@ class LoomSession:
                     "model_idx": model_idx,
                     "model_branch_index": branch_idx,
                     "usage": usage,
+                    **_boundary_metadata(raw_head, completion, normalized),
                 },
             )
             new_children.append(node)

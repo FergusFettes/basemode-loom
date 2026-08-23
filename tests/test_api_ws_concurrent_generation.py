@@ -109,7 +109,9 @@ def test_the_per_session_cap_is_reported(tmp_path, monkeypatch) -> None:
         ws.send_json({"type": "cancel"})
 
 
-def test_timeout_is_reported_as_a_failure_for_each_unfinished_model(tmp_path, monkeypatch) -> None:
+def test_timeout_is_reported_as_a_failure_for_each_unfinished_model(
+    tmp_path, monkeypatch
+) -> None:
     async def blocked_continue(*_args, **_kwargs):
         await asyncio.Future()
         yield "unreachable"
