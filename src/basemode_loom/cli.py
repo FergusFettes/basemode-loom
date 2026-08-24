@@ -609,6 +609,60 @@ def _print_loom_stats(stats, *, as_json: bool) -> None:
         console.print(path)
 
 
+@app.command("publish-evidence")
+def loom_publish_evidence(
+    db: Annotated[
+        Path | None, typer.Option("--db", help="SQLite generation database path")
+    ] = None,
+    since: Annotated[
+        str | None,
+        typer.Option("--since", help="Include nodes at/after this ISO-8601 timestamp"),
+    ] = None,
+    until: Annotated[
+        str | None,
+        typer.Option("--until", help="Include nodes before this ISO-8601 timestamp"),
+    ] = None,
+    source_instance: Annotated[
+        str | None,
+        typer.Option(
+            "--source-instance",
+            help="Stable corpus label (the default is a private local hash)",
+        ),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Print aggregates without writing evidence"),
+    ] = False,
+) -> None:
+    """Backfill private Loom usage as aggregate model evidence.
+
+    No node IDs, tree IDs, prompts, or generated text leave the Loom database.
+    """
+    from .model_evidence import (
+        collect_corpus_observations,
+        observations_json,
+        publish_corpus_statistics,
+    )
+
+    store = GenerationStore(db)
+    if dry_run:
+        observations = collect_corpus_observations(
+            store, window_start=since, window_end=until
+        )
+        console.print(observations_json(observations))
+        return
+    try:
+        count = publish_corpus_statistics(
+            store,
+            window_start=since,
+            window_end=until,
+            source_instance=source_instance,
+        )
+    except RuntimeError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    console.print(f"[dim]Published {count:,} aggregate evidence row(s).[/dim]")
+
+
 @app.command("view")
 def loom_view(
     source: Annotated[
