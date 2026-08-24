@@ -104,6 +104,8 @@ def test_publish_uses_basemode_adapter_without_private_material(
     assert child.id not in payload
     assert "private-name" not in payload
     assert captured["metadata"]["source_instance"] == "test-corpus"
+    assert captured["observations"][0]["timing_summary"]["timed_count"] == 0
+    assert "timed_count" not in captured["observations"][0]
 
 
 def test_publish_evidence_dry_run_is_aggregate_only(tmp_path) -> None:

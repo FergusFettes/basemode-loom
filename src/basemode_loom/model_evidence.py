@@ -31,7 +31,10 @@ class CorpusObservation:
     timing_summary: dict[str, float | int | None]
 
     def to_dict(self) -> dict[str, Any]:
-        return asdict(self)
+        payload = asdict(self)
+        timed_count = payload.pop("timed_count")
+        payload["timing_summary"]["timed_count"] = timed_count
+        return payload
 
 
 def _package_version(name: str) -> str | None:
