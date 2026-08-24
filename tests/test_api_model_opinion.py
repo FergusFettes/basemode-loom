@@ -9,8 +9,6 @@ half of the picture — an opinion beside a record of what actually happened.
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,10 +21,11 @@ ALLOWED = "https://grove.example.com"
 
 @pytest.fixture(autouse=True)
 def isolated_key_store(tmp_path, monkeypatch):
-    """basemode.keys resolves its paths at import time, so patch the globals."""
+    """Isolate both the legacy auth file and current shared evidence store."""
     auth_file = tmp_path / "auth.json"
     monkeypatch.setattr("basemode.keys._CONFIG_DIR", tmp_path)
     monkeypatch.setattr("basemode.keys._AUTH_FILE", auth_file)
+    monkeypatch.setattr("basemode.evidence._DB_FILE", tmp_path / "evidence.sqlite")
     return auth_file
 
 
@@ -54,8 +53,10 @@ def test_a_thumb_is_stored_under_the_resolved_model_id(tmp_path, isolated_key_st
             "openai/gpt-4o-mini": 1
         }
 
-    stored = json.loads(isolated_key_store.read_text())
-    assert stored["model_ratings"] == {"openai/gpt-4o-mini": 1}
+    from basemode.evidence import list_model_ratings
+
+    assert list_model_ratings() == {"openai/gpt-4o-mini": 1}
+    assert not isolated_key_store.exists()
 
 
 def test_reading_one_rating_normalizes_the_model_id(tmp_path) -> None:

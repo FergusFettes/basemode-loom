@@ -1,7 +1,7 @@
 """Per-user thumbs up/down for models, for the HTTP API.
 
-Ratings live in basemode's own config file (``~/.config/basemode/auth.json``)
-via :mod:`basemode.keys`, alongside keys and pinned strategies, rather than in
+Ratings live in basemode's shared model-evidence database, with older basemode
+releases falling back to ``~/.config/basemode/auth.json``. They do not live in
 this project's corpus database. They belong to the user, not to a tree: a
 corpus can be swapped with ``--db``, exported, and shared, and a thumb should
 survive all three and be visible to the ``basemode`` CLI and the loom TUI too.
