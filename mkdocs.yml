@@ -50,6 +50,7 @@ nav:
     - Configuration: usage/Configuration.md
     - Python API: usage/Python API.md
     - Web Server: usage/Web Server.md
+    - Model Evidence: usage/Model Evidence.md
   - Reference:
     - GenerationStore: reference/GenerationStore.md
     - Node: reference/Node.md

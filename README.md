@@ -80,6 +80,10 @@ isolated in the optional `embed` and `embed-mlx` installation extras.
 By default, data is stored in a local SQLite DB under your user data directory.
 Use `--db /path/to/file.sqlite` to choose a custom location.
 
+Publish privacy-safe aggregate model statistics to basemode's shared evidence
+store with `basemode-loom publish-evidence`. Use `--dry-run` to inspect the
+payload; raw tree text and identifiers are never published.
+
 ## Docs
 
 Project docs live in `docs/` (MkDocs):
