@@ -61,8 +61,12 @@ def test_speed_stats_average_timed_nodes_per_model(corpus) -> None:
         },
     )
     corpus.add_child(
-        root.id, " untimed.", model="zai/glm-5.1", strategy="system",
-        max_tokens=20, temperature=0.9,
+        root.id,
+        " untimed.",
+        model="zai/glm-5.1",
+        strategy="system",
+        max_tokens=20,
+        temperature=0.9,
     )
 
     stats = corpus.speed_stats_by_model()
@@ -102,8 +106,12 @@ def test_the_api_exposes_speed_by_model(corpus) -> None:
 def test_nothing_timed_is_an_empty_dict_not_an_error(corpus) -> None:
     root = corpus.create_root("Once upon a time")
     corpus.add_child(
-        root.id, " untimed.", model="zai/glm-5.1", strategy="system",
-        max_tokens=20, temperature=0.9,
+        root.id,
+        " untimed.",
+        model="zai/glm-5.1",
+        strategy="system",
+        max_tokens=20,
+        temperature=0.9,
     )
 
     with _client(corpus) as client:
