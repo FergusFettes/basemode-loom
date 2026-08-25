@@ -114,11 +114,11 @@ class ServerConfig:
     max_message_bytes: int = 4 * 1024 * 1024
     max_field_bytes: int = 1024 * 1024
     max_context_tokens: int = 128_000
-    concurrent_generation_jobs: int = 4
+    concurrent_generation_jobs: int = 32
     # Per connection, not server-wide: how many generations one client may
     # have running at once (in different places in the tree, typically).
     # `concurrent_generation_jobs` still caps the whole server.
-    concurrent_generations_per_session: int = 3
+    concurrent_generations_per_session: int = 10
     max_branches_per_job: int = 64
     generation_timeout_seconds: float = 60.0
     max_output_tokens: int = 8000
