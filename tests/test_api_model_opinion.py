@@ -201,6 +201,45 @@ def test_health_rejects_a_blank_model(tmp_path) -> None:
     assert response.json()["detail"] == {"code": "empty_model"}
 
 
+def test_performance_reports_comparisons_with_uncertainty_context(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "performance.sqlite")
+    root = store.create_root("Root")
+    tip = root.id
+    for index in range(3):
+        winner = store.add_child(
+            tip,
+            " useful",
+            model="strong",
+            strategy="system",
+            max_tokens=10,
+            temperature=0.9,
+            metadata={"generation_id": f"g{index}", "model_idx": 0},
+        )
+        store.add_child(
+            tip,
+            " unused",
+            model="weak",
+            strategy="system",
+            max_tokens=10,
+            temperature=0.9,
+            metadata={"generation_id": f"g{index}", "model_idx": 1},
+        )
+        tip = winner.id
+
+    with TestClient(create_app(store, Config())) as client:
+        response = client.get(
+            "/api/models/performance",
+            params={"min_games": 0, "resamples": 0},
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["signal"] == "descendant"
+    assert body["mixed_batches"] == 3
+    assert body["comparisons"] > 0
+    assert {entry["model"] for entry in body["ratings"]} == {"strong", "weak"}
+
+
 def test_the_model_listing_carries_health(tmp_path) -> None:
     from basemode import health
 

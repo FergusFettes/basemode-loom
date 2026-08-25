@@ -20,6 +20,8 @@ from ..graph_stats import analyze_subtree
 from ..images import MAX_PROMPT_CHARS, ImageGenerationError, generate_branch_image
 from ..model_ratings import get_rating, is_valid_rating, list_ratings, set_rating
 from ..model_resolver import resolve_model_id
+from ..rating import batches_from_store
+from ..rating.report import analyze as analyze_model_ratings
 from ..retrieval import embed_corpus, get_backend, get_embedder, vector_count
 from ..retrieval.vectors import read_meta
 from ..stats import analyze_tree
@@ -712,6 +714,36 @@ def model_speed_report(store: StoreDep) -> dict:
     metadata.
     """
     return {"speed": store.speed_stats_by_model()}
+
+
+@router.get("/models/performance")
+def model_performance_report(
+    store: StoreDep,
+    signal: Annotated[
+        Literal["descendant", "discounted", "click", "bookmark"],
+        Query(description="Revealed-preference signal used to compare siblings."),
+    ] = "descendant",
+    min_games: Annotated[
+        int, Query(ge=0, le=1000, description="Minimum pairwise comparisons per model.")
+    ] = 20,
+    resamples: Annotated[
+        int, Query(ge=0, le=1000, description="Batch-bootstrap samples for intervals.")
+    ] = 200,
+) -> dict:
+    """Cohort-aware model ratings inferred from choices already in the trees.
+
+    Completions are compared only with siblings generated in the same batch.
+    The response keeps the comparison graph and uncertainty beside the Elo-like
+    point estimates so clients cannot accidentally present a thin ordering as
+    settled fact.
+    """
+    report = analyze_model_ratings(
+        batches_from_store(store),
+        signal=signal,
+        min_games=min_games,
+        resamples=resamples,
+    )
+    return {"signal": signal, **report.as_dict()}
 
 
 @router.post("/import", status_code=201)
