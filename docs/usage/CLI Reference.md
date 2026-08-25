@@ -166,6 +166,21 @@ basemode-loom stats [NODE_ID] [--json] [--file EXPORT.json]
 
 Includes tree depth, path stats, model breakdown, bookmark/hide rates, and descendant-score metrics. Pass `--json` for machine-readable output, or `--file` to analyze a JSON export without using the SQLite store.
 
+### `rating`
+
+Rate models against each other using the choices already in the trees.
+
+```bash
+basemode-loom rating [--root ID] [--models a,b,c] [--signal descendant] [--json]
+```
+
+Every generation batch is a controlled comparison, so the corpus is a
+tournament. Unlike the per-model peer score in `stats`, these ratings share one
+scale across cohorts that never met. Reports the comparison graph and its cut
+edges, elo with bootstrap intervals, depth-conditional fits, which pairwise
+differences are still unmeasured, and which line-up to generate next. See
+[Model Rating](Model Rating.md).
+
 ## Export
 
 ### `export`

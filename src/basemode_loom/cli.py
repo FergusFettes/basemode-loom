@@ -553,6 +553,108 @@ def loom_stats(
     _print_loom_stats(stats, as_json=as_json)
 
 
+@app.command("rating")
+def loom_rating(
+    root_id: Annotated[
+        list[str] | None,
+        typer.Option("--root", help="Restrict to these roots (repeatable)"),
+    ] = None,
+    signal: Annotated[
+        str,
+        typer.Option(
+            "--signal",
+            help="What counts as winning a batch: descendant, discounted, click, bookmark",
+        ),
+    ] = "descendant",
+    models: Annotated[
+        str | None,
+        typer.Option(
+            "--models",
+            help="Comma-separated model names: rate one cohort only, which is the "
+            "only way depth-conditional ratings are comparable across bands",
+        ),
+    ] = None,
+    min_games: Annotated[
+        int,
+        typer.Option("--min-games", help="Hold out models with fewer comparisons"),
+    ] = 20,
+    resamples: Annotated[
+        int, typer.Option("--resamples", help="Bootstrap resamples for the intervals")
+    ] = 200,
+    depth_bands: Annotated[
+        int, typer.Option("--depth-bands", help="Depth bands to fit separately")
+    ] = 3,
+    cohort_size: Annotated[
+        int, typer.Option("--cohort-size", help="Size of the recommended next line-up")
+    ] = 4,
+    raw_names: Annotated[
+        bool,
+        typer.Option("--raw-names", help="Rate gateway variants of a model separately"),
+    ] = False,
+    keep_indecisive: Annotated[
+        bool,
+        typer.Option("--keep-unjudged", help="Keep batches the user never judged"),
+    ] = False,
+    include_archived: Annotated[
+        bool, typer.Option("--archived", help="Include archived trees")
+    ] = False,
+    as_json: Annotated[
+        bool, typer.Option("--json", help="Print machine-readable JSON")
+    ] = False,
+    db: Annotated[
+        Path | None, typer.Option("--db", help="SQLite generation database path")
+    ] = None,
+) -> None:
+    """Rate models against each other using the choices already in the trees.
+
+    Every generation batch is a controlled comparison the user already made, so
+    the corpus is a tournament. Unlike the per-model peer score in `stats`,
+    these ratings share one scale across cohorts that never met.
+    """
+    from .rating import batches_from_store
+    from .rating.batches import SIGNALS
+    from .rating.report import analyze, render
+
+    if signal not in SIGNALS:
+        console.print(f"[red]--signal must be one of: {', '.join(SIGNALS)}[/red]")
+        raise typer.Exit(1)
+
+    store = GenerationStore(db)
+    batches = batches_from_store(
+        store, root_ids=root_id or None, include_archived=include_archived
+    )
+    if not batches:
+        console.print("[red]No multi-completion batches found to rate.[/red]")
+        raise typer.Exit(1)
+
+    report = analyze(
+        batches,
+        signal=signal,
+        merge_gateways=not raw_names,
+        keep_indecisive=keep_indecisive,
+        models=models.split(",") if models else None,
+        min_games=min_games,
+        resamples=resamples,
+    )
+    if not report.fit.ratings:
+        console.print(
+            "[red]No model has enough comparisons to rate. "
+            "Try --min-games 0, or generate batches with more than one model.[/red]"
+        )
+        raise typer.Exit(1)
+    if as_json:
+        print(_json.dumps(report.as_dict(), indent=2, ensure_ascii=False))
+        return
+    print(
+        render(
+            report,
+            signal=signal,
+            depth_bands=depth_bands,
+            cohort_size=cohort_size,
+        )
+    )
+
+
 def _print_loom_stats(stats, *, as_json: bool) -> None:
     if as_json:
         print(_json.dumps(stats.as_dict(), indent=2, ensure_ascii=False))
