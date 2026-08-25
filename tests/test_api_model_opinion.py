@@ -240,6 +240,30 @@ def test_performance_reports_comparisons_with_uncertainty_context(tmp_path) -> N
     assert {entry["model"] for entry in body["ratings"]} == {"strong", "weak"}
 
 
+def test_performance_report_is_cached_for_repeat_reads(tmp_path, monkeypatch) -> None:
+    from basemode_loom.api import _rest
+
+    store = GenerationStore(tmp_path / "cached-performance.sqlite")
+    store.create_root("Root")
+    calls = 0
+    original = _rest.analyze_model_ratings
+
+    def counted(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return original(*args, **kwargs)
+
+    _rest._performance_cache.clear()
+    monkeypatch.setattr(_rest, "analyze_model_ratings", counted)
+    with TestClient(create_app(store, Config())) as client:
+        first = client.get("/api/models/performance", params={"resamples": 0})
+        second = client.get("/api/models/performance", params={"resamples": 0})
+
+    assert first.status_code == second.status_code == 200
+    assert first.json() == second.json()
+    assert calls == 1
+
+
 def test_the_model_listing_carries_health(tmp_path) -> None:
     from basemode import health
 

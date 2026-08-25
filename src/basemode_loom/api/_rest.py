@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter
+from time import monotonic
 from typing import Annotated, Any, Literal
 
 from basemode.health import list_model_health, model_health
@@ -30,6 +31,9 @@ from ._security import value_exceeds_field_limit
 from ._serialize import node_to_dict, tree_to_dict
 
 router = APIRouter(prefix="/api")
+
+_PERFORMANCE_CACHE_TTL_SECONDS = 300.0
+_performance_cache: dict[tuple[str, str, int, int], tuple[float, dict[str, Any]]] = {}
 
 
 def _get_store(request: Request) -> GenerationStore:
@@ -737,13 +741,21 @@ def model_performance_report(
     point estimates so clients cannot accidentally present a thin ordering as
     settled fact.
     """
+    cache_key = (str(store.db_path), signal, min_games, resamples)
+    cached = _performance_cache.get(cache_key)
+    now = monotonic()
+    if cached is not None and now - cached[0] < _PERFORMANCE_CACHE_TTL_SECONDS:
+        return cached[1]
+
     report = analyze_model_ratings(
         batches_from_store(store),
         signal=signal,
         min_games=min_games,
         resamples=resamples,
     )
-    return {"signal": signal, **report.as_dict()}
+    result = {"signal": signal, **report.as_dict()}
+    _performance_cache[cache_key] = (now, result)
+    return result
 
 
 @router.post("/import", status_code=201)
