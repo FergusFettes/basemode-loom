@@ -487,6 +487,46 @@ def test_edit_node_text_updates_selected_node_segment(store):
     assert state.full_text == "Hello earth"
 
 
+def test_edit_node_text_can_move_children_to_the_new_node(store):
+    _, children = store.save_continuations(
+        "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    grandchild = store.add_child(
+        children[0].id,
+        " again",
+        model="m",
+        strategy="s",
+        max_tokens=10,
+        temperature=0.9,
+    )
+    session = LoomSession(store, children[0].id)
+
+    edited = session.edit_node_text(children[0].id, " earth", move_children=True)
+
+    assert edited is not None
+    assert store.children(children[0].id) == []
+    assert [node.id for node in store.children(edited.id)] == [grandchild.id]
+
+
+def test_move_node_children_moves_each_subtree_to_target(store):
+    root = store.create_root("Root")
+    source = store.add_child(
+        root.id, " source", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    target = store.add_child(
+        root.id, " target", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    child = store.add_child(
+        source.id, " child", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, source.id)
+
+    assert session.move_node_children(source.id, target.id) == 1
+    assert store.children(source.id) == []
+    assert [node.id for node in store.children(target.id)] == [child.id]
+    assert session.get_state().current_node_id == target.id
+
+
 def test_edit_node_text_does_not_use_full_text_diff_path(store, monkeypatch):
     _, ch = store.save_continuations(
         "Hello", [" world"], model="m", strategy="s", max_tokens=10, temperature=0.9

@@ -1081,7 +1081,12 @@ class LoomSession:
         return " " + text
 
     def edit_node_text(
-        self, node_id: str, new_text: str, *, heal_boundary: bool = False
+        self,
+        node_id: str,
+        new_text: str,
+        *,
+        heal_boundary: bool = False,
+        move_children: bool = False,
     ) -> Node | None:
         """Edit a single node segment by creating a direct forked node.
 
@@ -1112,8 +1117,23 @@ class LoomSession:
                 max_tokens=node.max_tokens or self.max_tokens,
                 temperature=node.temperature or self.temperature,
             )
+            if move_children:
+                self._store.move_children(node.id, new_node.id)
         self._checkout_node(new_node.id)
         return new_node
+
+    def move_node_children(self, from_parent_id: str, to_parent_id: str) -> int | None:
+        """Move every direct child (and therefore each subtree) to another node."""
+        source = self._store.get(from_parent_id)
+        target = self._store.get(to_parent_id)
+        if source is None or target is None or source.tree_id != target.tree_id:
+            return None
+        try:
+            moved = self._store.move_children(source.id, target.id)
+        except ValueError:
+            return None
+        self._checkout_node(target.id)
+        return moved
 
     def remove_leading_space(self, node_id: str) -> Node | None:
         """Remove one leading space from a node without forking it.

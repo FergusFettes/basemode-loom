@@ -1255,6 +1255,12 @@ class GenerationStore:
         if any(node.id == target.id for node in self.lineage(source.id)):
             raise ValueError(f"{to_parent_id!r} is an ancestor of {from_parent_id!r}")
 
+        # Every direct child is about to move. Putting one beneath anything in
+        # its own subtree would create a parent cycle.
+        for child in self.children(source.id):
+            if any(node.id == child.id for node in self.lineage(target.id)):
+                raise ValueError(f"{to_parent_id!r} is below a moved child")
+
         moved = [child.id for child in self.children(source.id)]
         if not moved:
             return 0

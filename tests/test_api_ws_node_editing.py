@@ -88,6 +88,59 @@ def test_edit_node_with_unchanged_text_is_a_no_op(tmp_path) -> None:
     assert state["full_text"] == "Hello world"
 
 
+def test_edit_node_can_move_children_onto_the_fork(tmp_path) -> None:
+    store, _root, child = _seed(tmp_path)
+    grandchild = store.add_child(
+        child.id, " again", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, child.id)
+            ws.send_json(
+                {
+                    "type": "edit_node",
+                    "node_id": child.id,
+                    "text": " earth",
+                    "move_children": True,
+                }
+            )
+            state = _recv_state(ws)
+
+    assert store.children(child.id) == []
+    assert [node.id for node in store.children(state["current_node_id"])] == [
+        grandchild.id
+    ]
+
+
+def test_move_node_children_reparents_subtrees(tmp_path) -> None:
+    store, root, source = _seed(tmp_path)
+    target = store.add_child(
+        root.id, " target", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    child = store.add_child(
+        source.id, " again", model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    app = create_app(store)
+
+    with TestClient(app) as client:
+        with client.websocket_connect("/ws/session") as ws:
+            _init(ws, root.id)
+            ws.send_json(
+                {
+                    "type": "move_node_children",
+                    "from_parent_id": source.id,
+                    "to_parent_id": target.id,
+                }
+            )
+            state = _recv_state(ws)
+
+    assert state["current_node_id"] == target.id
+    assert store.children(source.id) == []
+    assert [node.id for node in store.children(target.id)] == [child.id]
+
+
 def test_remove_leading_space_updates_the_existing_node_in_place(tmp_path) -> None:
     store, root, child = _seed(tmp_path)
     grandchild = store.add_child(
