@@ -65,14 +65,14 @@ async def test_info_bar_shows_tokens_and_branches(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         info_bar = app.screen.query_one("#status-bar", Static)
-        assert "tok:200" in str(info_bar.render())
+        assert "tok:20" in str(info_bar.render())
         assert "br:1" in str(info_bar.render())
         assert "cost:$0.000000" in str(info_bar.render())
 
         await pilot.press("w")
         await pilot.press("d")
 
-        assert "tok:250" in str(info_bar.render())
+        assert "tok:70" in str(info_bar.render())
         assert "br:2" in str(info_bar.render())
 
 
@@ -321,7 +321,7 @@ async def test_d_increases_branches(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("d")
-        assert session.n_branches == 2
+        assert session.branches_per_model == 2
 
 
 @pytest.mark.asyncio
@@ -331,7 +331,7 @@ async def test_a_decreases_branches_min_one(store, tree):
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("a")  # already 1, should stay 1
-        assert session.n_branches == 1
+        assert session.branches_per_model == 1
 
 
 @pytest.mark.asyncio
@@ -586,7 +586,9 @@ async def test_m_space_selects_multiple_models_and_enter_applies(
     )
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
-    session.set_model("model-a")
+    session.set_model_plan(
+        [{"model": "model-a", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}]
+    )
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("m")
@@ -612,7 +614,9 @@ async def test_model_picker_up_down_work_like_j_k(store, tree, monkeypatch):
     )
     ab, _ = tree
     session = LoomSession(store, ab[0].id)
-    session.set_model("model-a")
+    session.set_model_plan(
+        [{"model": "model-a", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}]
+    )
     app = BasemodeApp(session)
     async with app.run_test(headless=True) as pilot:
         await pilot.press("m")

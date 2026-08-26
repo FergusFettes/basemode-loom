@@ -32,7 +32,7 @@ def test_set_params_persists_and_restores_on_reconnect(tmp_path) -> None:
     with TestClient(app) as client:
         with client.websocket_connect("/ws/session") as ws:
             state = _init(ws, root.id)
-            assert state["max_tokens"] == 200
+            assert state["max_tokens"] == 20
 
             ws.send_json(
                 {
@@ -115,10 +115,14 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
             ws.send_json(
                 {
                     "type": "set_params",
-                    "model": "openai/gpt-4o",
-                    "max_tokens": 600,
-                    "temperature": 0.7,
-                    "n_branches": 2,
+                    "model_plan": [
+                        {
+                            "model": "openai/gpt-4o",
+                            "max_tokens": 600,
+                            "temperature": 0.7,
+                            "n_branches": 2,
+                        }
+                    ],
                     "persist": True,
                 }
             )
@@ -135,7 +139,7 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
                 "max_tokens": 600,
                 "temperature": 0.7,
                 "enabled": True,
-                "pinned_settings": True,
+                "pinned_settings": False,
             }
         ]
         assert "model" not in root_node["metadata"]
@@ -146,7 +150,7 @@ def test_set_params_syncs_root_metadata_in_tree_endpoint(tmp_path) -> None:
 
 def test_set_params_rejects_invalid_values_with_field_errors(tmp_path) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
-    root = store.create_root("Seed", metadata={"max_tokens": 200})
+    root = store.create_root("Seed", metadata={"model": "m", "max_tokens": 200})
     app = create_app(store)
 
     with TestClient(app) as client:

@@ -43,8 +43,14 @@ def test_generate_surfaces_finish_reason_on_empty_completion_error(
         ws.send_json(
             {
                 "type": "set_params",
-                "model": "moonshot/kimi-k3",
-                "n_branches": 1,
+                "model_plan": [
+                    {
+                        "model": "moonshot/kimi-k3",
+                        "n_branches": 1,
+                        "max_tokens": 20,
+                        "temperature": 0.9,
+                    }
+                ],
                 "persist": True,
             }
         )

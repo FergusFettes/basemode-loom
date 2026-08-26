@@ -278,10 +278,11 @@ def test_set_n_branches_minimum_one(store):
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
+    n_models = len(session.model_plan)
     session.set_n_branches(0)
-    assert session.n_branches == 1
+    assert session.n_branches == n_models
     session.set_n_branches(-5)
-    assert session.n_branches == 1
+    assert session.n_branches == n_models
 
 
 def test_set_n_branches_applies_per_model_across_plan(store):
@@ -582,6 +583,9 @@ def test_save_persists_model_and_tokens(store):
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
     session.set_model("claude-3")
     session.set_max_tokens(400)
     session.set_n_branches(3)
@@ -595,7 +599,7 @@ def test_save_persists_model_and_tokens(store):
             "n_branches": 3,
             "temperature": 0.9,
             "enabled": True,
-            "pinned_settings": True,
+            "pinned_settings": False,
         }
     ]
     assert tree.show_model_names is True
@@ -643,7 +647,9 @@ async def test_generate_yields_token_events(store, monkeypatch):
         "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     events = []
     async for event in session.generate():
@@ -666,7 +672,9 @@ async def test_generate_saves_completions(store, monkeypatch):
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for event in session.generate():
         if isinstance(event, GenerationComplete):
@@ -719,7 +727,9 @@ async def test_generate_normalizes_double_hyphens_in_stream_and_storage(
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     events = [event async for event in session.generate()]
     streamed = "".join(
@@ -795,7 +805,9 @@ async def test_generate_empty_stream_is_reported_as_error_not_saved(store, monke
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     events = []
     async for event in session.generate():
@@ -929,7 +941,9 @@ async def test_generate_partial_failure_still_saves_successful_branches(
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 2
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 2, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     events = []
     async for event in session.generate():
@@ -996,7 +1010,9 @@ async def test_generate_multiple_branches(store, monkeypatch):
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 3
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 3, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for event in session.generate():
         if isinstance(event, GenerationComplete):
@@ -1064,7 +1080,9 @@ async def test_generate_shuffles_completion_order(store, monkeypatch):
         "X", ["Y"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 3
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 3, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for _event in session.generate():
         pass
@@ -1125,7 +1143,9 @@ async def test_generate_persists_usage_metadata_and_tree_cost(store, monkeypatch
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for _event in session.generate():
         pass
@@ -1206,7 +1226,7 @@ def test_setters_leave_the_globals_alone_for_an_unpinned_entry(store):
     session.set_n_branches(3)
     session.set_max_tokens(400)
     assert session.global_n_branches == 1
-    assert session.global_max_tokens == 200
+    assert session.global_max_tokens == 20
 
 
 @pytest.mark.asyncio
@@ -1349,7 +1369,9 @@ async def test_a_single_branch_generation_leaves_the_current_node_put(
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 1, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for _event in session.generate():
         pass
@@ -1374,7 +1396,9 @@ async def test_branches_landing_one_by_one_never_check_themselves_out(
         "Prompt", ["seed"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )
     session = LoomSession(store, ch[0].id)
-    session.n_branches = 4
+    session.set_model_plan(
+        [{"model": "m", "n_branches": 4, "max_tokens": 10, "temperature": 0.9}]
+    )
 
     async for _event in session.generate():
         # Mid-flight too: not just where it settles at the end.

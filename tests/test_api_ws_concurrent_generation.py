@@ -60,12 +60,26 @@ def test_a_second_generation_runs_alongside_the_first(tmp_path, monkeypatch) -> 
 
     with TestClient(app) as client, client.websocket_connect("/ws/session") as ws:
         _init(ws, root.id)
-        ws.send_json({"type": "set_params", "model": "slow-model", "n_branches": 1})
+        ws.send_json(
+            {
+                "type": "set_params",
+                "model_plan": [
+                    {"model": "slow-model", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}
+                ],
+            }
+        )
         _recv_state(ws)
         ws.send_json({"type": "generate"})
 
         # Second job, a different model, while the first is still blocked.
-        ws.send_json({"type": "set_params", "model": "quick-model", "n_branches": 1})
+        ws.send_json(
+            {
+                "type": "set_params",
+                "model_plan": [
+                    {"model": "quick-model", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}
+                ],
+            }
+        )
         _recv_state(ws)
         ws.send_json({"type": "generate"})
 
