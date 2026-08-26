@@ -64,7 +64,12 @@ def test_a_second_generation_runs_alongside_the_first(tmp_path, monkeypatch) -> 
             {
                 "type": "set_params",
                 "model_plan": [
-                    {"model": "slow-model", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}
+                    {
+                        "model": "slow-model",
+                        "n_branches": 1,
+                        "max_tokens": 20,
+                        "temperature": 0.9,
+                    }
                 ],
             }
         )
@@ -76,7 +81,12 @@ def test_a_second_generation_runs_alongside_the_first(tmp_path, monkeypatch) -> 
             {
                 "type": "set_params",
                 "model_plan": [
-                    {"model": "quick-model", "n_branches": 1, "max_tokens": 20, "temperature": 0.9}
+                    {
+                        "model": "quick-model",
+                        "n_branches": 1,
+                        "max_tokens": 20,
+                        "temperature": 0.9,
+                    }
                 ],
             }
         )
