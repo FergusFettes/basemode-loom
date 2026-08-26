@@ -33,13 +33,19 @@ _CONFIG_METADATA_KEYS = {
 # branches/tokens until the user unpins it.
 _DEFAULT_MODEL_PLAN = [
     {
-        "model": "gpt-4o-mini",
+        "model": model,
         "n_branches": 1,
-        "max_tokens": 200,
+        "max_tokens": 20,
         "temperature": 0.9,
         "enabled": True,
         "pinned_settings": True,
     }
+    for model in (
+        "zai/glm-5.2",
+        "deepseek/deepseek-v4-flash-0731",
+        "openai/gpt-5.4",
+        "anthropic/claude-opus-4-7",
+    )
 ]
 
 

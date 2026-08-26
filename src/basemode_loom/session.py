@@ -303,7 +303,7 @@ class LoomSession:
                 # global branches/tokens until the user says otherwise.
                 ModelPlanEntry(
                     model=str(get_default_model() or "gpt-4o-mini"),
-                    max_tokens=200,
+                    max_tokens=20,
                     temperature=0.9,
                     n_branches=1,
                     enabled=True,

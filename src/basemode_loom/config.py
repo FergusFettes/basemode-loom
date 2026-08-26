@@ -88,8 +88,8 @@ class KeyMap:
 
 @dataclass
 class GenerationDefaults:
-    model: str = "gpt-4o-mini"
-    max_tokens: int = 200
+    model: str = "zai/glm-5.2"
+    max_tokens: int = 20
     temperature: float = 0.9
     n_branches: int = 1
     model_overrides: bool = True
