@@ -46,6 +46,10 @@ application can instead pass `store_resolver` to `create_app`. It receives
 the trusted ASGI scope for each HTTP request and WebSocket connection and
 returns the `GenerationStore` that connection may access:
 
+Store connections use SQLite WAL mode and wait up to 30 seconds for a busy
+database, allowing concurrent browser sessions to read while short writes are
+being committed and to tolerate brief write contention.
+
 ```python
 from starlette.types import Scope
 

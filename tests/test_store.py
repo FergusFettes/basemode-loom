@@ -3,6 +3,17 @@ import pytest
 from basemode_loom.store import AmbiguousNodeReference, GenerationStore, Node
 
 
+def test_connections_use_wal_and_wait_for_busy_database(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+
+    with store.connect() as conn:
+        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+
+    assert journal_mode == "wal"
+    assert busy_timeout == 30_000
+
+
 def test_save_continuations_creates_root_and_branch_children(tmp_path) -> None:
     store = GenerationStore(tmp_path / "generations.sqlite")
 
