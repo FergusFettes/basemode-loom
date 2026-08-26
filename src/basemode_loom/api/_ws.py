@@ -469,7 +469,26 @@ async def session_ws(
                     continue
                 # A no-op edit also returns None, so an unchanged tree here is
                 # success, not an error; just resend state either way.
-                session.edit_node_text(node_id, text, heal_boundary=True)
+                session.edit_node_text(
+                    node_id,
+                    text,
+                    heal_boundary=True,
+                    move_children=data.get("move_children") is True,
+                )
+                await push_state()
+
+            elif msg_type == "move_node_children":
+                from_parent_id = data.get("from_parent_id")
+                to_parent_id = data.get("to_parent_id")
+                if not isinstance(from_parent_id, str) or not from_parent_id:
+                    await send_error("move_node_children requires a from_parent_id")
+                    continue
+                if not isinstance(to_parent_id, str) or not to_parent_id:
+                    await send_error("move_node_children requires a to_parent_id")
+                    continue
+                if session.move_node_children(from_parent_id, to_parent_id) is None:
+                    await send_error("could not move node children")
+                    continue
                 await push_state()
 
             elif msg_type == "remove_leading_space":

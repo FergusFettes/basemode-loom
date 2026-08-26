@@ -428,6 +428,22 @@ def test_move_children_with_no_children_is_a_noop(store):
     assert store.move_children(empty.id, sibling.id) == 0
 
 
+def test_move_children_rejects_a_target_inside_a_moved_subtree(store):
+    root = store.create_root("root")
+    source = store.add_child(
+        root.id, " source", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    child = store.add_child(
+        source.id, " child", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+    leaf = store.add_child(
+        child.id, " leaf", model="m", strategy="s", max_tokens=5, temperature=0.7
+    )
+
+    with pytest.raises(ValueError):
+        store.move_children(source.id, leaf.id)
+
+
 def test_update_text_rewrites_a_node_in_place(store):
     root = store.create_root("root")
     child = store.add_child(
