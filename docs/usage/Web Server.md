@@ -87,7 +87,7 @@ OpenAPI Generator. Regenerate that client when `/openapi.json` changes.
 ### Search and filter trees
 
 ```
-GET /api/trees?q=learning&category=research&source=codex&sort=auto&limit=50
+GET /api/trees?q=learning&category=research&source=codex&sort=recent&direction=desc&archived=active&limit=50
 ```
 
 Returns picker-ready tree summaries, the total match count, available facet
@@ -97,17 +97,48 @@ parameters are:
 - `q`: ID, indexed keyword/semantic query, or metadata substring query when no
   retrieval index is available
 - `category`, `domain`, `source`, `model`: repeatable facet values
-- `sort`: `auto`, `relevance`, `recent`, `oldest`, `nodes`, or `name`
+- `archived`: `active` (the default), `archived`, or `both`
+- `sort`: `auto`, `relevance`, `recent`, `created`, `oldest`, `nodes`,
+  `breadth`, `branching`, or `name`
+- `direction`: `asc` or `desc`; when omitted, `name` and legacy `oldest` are
+  ascending and all other sorts are descending
 - `offset`, `limit`: pagination; `limit` is capped at 200
 
 Values repeated within one facet are combined with OR. Different facets are
 combined with AND. `auto` selects relevance ordering for indexed results and
 recent ordering otherwise.
 
-Each item includes its root and tree IDs, previews, node count, classification,
-sources, models, and, for ranked searches, `score` and `best_node_id`. The
-`search` object reports whether keyword and semantic retrieval are currently
-available and explains missing optional dependencies.
+`recent` orders by the tree's `updated_at`; `created` orders by `created_at`.
+The legacy `oldest` value is retained as an ascending created-time sort.
+
+Each item has the following schema (nullable fields are marked `?`):
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | Root node ID |
+| `tree_id` | string | Tree ID |
+| `name` | string? | Tree name |
+| `created_at`, `updated_at` | string | Persisted ISO timestamps |
+| `archived` | boolean | Tree archive state |
+| `node_count` | integer | Text/root nodes including the root; context nodes excluded |
+| `breadth` | integer | Maximum number of nodes at any single depth (root depth is zero) |
+| `avg_branching_factor` | number | Child edges divided by internal-node count; zero with no internal nodes |
+| `branchiness` | number | `(leaf_count - 1) / (descendant_count - 1)`, or zero with at most one descendant |
+| `root_preview`, `leaf_preview` | string | Flattened root and checked-out-node previews |
+| `category`, `domain` | string | Classification values, or empty strings |
+| `sources`, `models` | string[] | Distinct provenance and model names |
+| `score` | number? | Search score for ranked searches |
+| `best_node_id` | string? | Best matching node for ranked searches |
+
+`sort=branching` uses `avg_branching_factor`, matching Grove's Branching
+display. `branchiness` remains available as the size-normalized topology
+measure used by the subtree statistics endpoint.
+
+The response also contains `total` (matches before pagination), `offset`,
+`limit`, facet counts, and search capabilities. The catalogue query paginates
+before calculating shapes and page previews for recent, created, name, and
+node-count ordering. Breadth and branching ordering necessarily calculate
+shape metrics for all matches before pagination.
 
 ### Manage embeddings
 
