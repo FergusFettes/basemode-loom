@@ -53,6 +53,11 @@ def test_tree_catalog_returns_picker_summaries_and_facets(tmp_path) -> None:
     item = next(item for item in body["items"] if item["id"] == alpha[0].id)
     assert item["name"] == "Alpha"
     assert item["node_count"] == 2
+    assert item["updated_at"]
+    assert item["archived"] is False
+    assert item["breadth"] == 1
+    assert item["avg_branching_factor"] == 1.0
+    assert item["branchiness"] == 0.0
     assert item["category"] == "code"
     assert item["domain"] == "agents"
     assert item["sources"] == ["codex"]
@@ -126,8 +131,93 @@ def test_tree_catalog_schema_is_published_in_openapi(tmp_path) -> None:
         "source",
         "model",
         "sort",
+        "direction",
+        "archived",
         "offset",
         "limit",
     }
     response = operation["responses"]["200"]["content"]["application/json"]
     assert response["schema"]["$ref"].endswith("/TreeCatalogResponse")
+    properties = schema["components"]["schemas"]["TreeSummary"]["properties"]
+    assert properties.keys() >= {
+        "updated_at",
+        "archived",
+        "node_count",
+        "breadth",
+        "avg_branching_factor",
+        "branchiness",
+    }
+
+
+def test_tree_catalog_archive_selector_and_recent_updated_sort(tmp_path) -> None:
+    store, alpha, beta = _catalog_store(tmp_path)
+    store.set_tree_archived(beta[0].tree_id, True)
+    with closing(store.connect()) as conn, conn:
+        conn.execute(
+            "UPDATE trees SET updated_at = '2099-01-01T00:00:00' WHERE id = ?",
+            (alpha[0].tree_id,),
+        )
+
+    with TestClient(create_app(store)) as client:
+        active = client.get("/api/trees")
+        archived = client.get("/api/trees?archived=archived")
+        both = client.get("/api/trees?archived=both&sort=recent")
+
+    assert [item["id"] for item in active.json()["items"]] == [alpha[0].id]
+    assert [item["id"] for item in archived.json()["items"]] == [beta[0].id]
+    assert both.json()["items"][0]["id"] == alpha[0].id
+
+
+def test_tree_catalog_shape_sorts_in_both_directions(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "shapes.sqlite")
+    chain = store.create_root("chain")
+    parent = chain
+    for index in range(3):
+        parent = store.add_child(
+            parent.id, f" chain {index}", model="m", strategy="s",
+            max_tokens=1, temperature=0.0,
+        )
+    wide = store.create_root("wide")
+    for index in range(3):
+        store.add_child(
+            wide.id, f" wide {index}", model="m", strategy="s",
+            max_tokens=1, temperature=0.0,
+        )
+
+    with TestClient(create_app(store)) as client:
+        descending = client.get("/api/trees?sort=branching&direction=desc").json()
+        ascending = client.get("/api/trees?sort=breadth&direction=asc").json()
+
+    assert descending["items"][0]["id"] == wide.id
+    assert descending["items"][0]["avg_branching_factor"] == 3.0
+    assert descending["items"][0]["branchiness"] == 1.0
+    assert ascending["items"][0]["id"] == chain.id
+    assert ascending["items"][0]["breadth"] == 1
+
+
+def test_tree_catalog_query_count_is_constant_across_page_sizes(
+    tmp_path, monkeypatch
+) -> None:
+    store, _alpha, _beta = _catalog_store(tmp_path)
+    original_connect = store.connect
+    select_counts: list[int] = []
+
+    def traced_connect():
+        conn = original_connect()
+        conn.set_trace_callback(
+            lambda sql: select_counts.append(1)
+            if sql.lstrip().upper().startswith(("SELECT", "WITH"))
+            else None
+        )
+        return conn
+
+    monkeypatch.setattr(store, "connect", traced_connect)
+    with TestClient(create_app(store)) as client:
+        client.get("/api/trees?limit=1")
+        one = len(select_counts)
+        select_counts.clear()
+        client.get("/api/trees?limit=200")
+        many = len(select_counts)
+
+    assert one == many
+    assert many <= 4

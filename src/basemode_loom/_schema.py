@@ -109,10 +109,21 @@ def ensure_column(
 
 def create_indexes(conn: sqlite3.Connection) -> None:
     conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trees_archived_updated "
+        "ON trees(archived, updated_at DESC, id DESC)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trees_archived_created "
+        "ON trees(archived, created_at DESC, id DESC)"
+    )
+    conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nodes_parent_created ON nodes(parent_id, created_at)"
     )
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_nodes_tree_created ON nodes(tree_id, created_at)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_nodes_tree_model ON nodes(tree_id, model)"
     )
     conn.execute(
         """

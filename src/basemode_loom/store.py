@@ -836,6 +836,208 @@ class GenerationStore:
                 out[str(row["id"])] = {key: values.get(key, "") for key in keys}
         return out
 
+    def tree_catalog_rows(
+        self,
+        *,
+        archived: bool | None = False,
+        category: list[str] | None = None,
+        domain: list[str] | None = None,
+        source: list[str] | None = None,
+        model: list[str] | None = None,
+        metadata_query: str = "",
+        tree_ids: list[str] | None = None,
+        sort: str = "recent",
+        descending: bool = True,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> tuple[list[dict[str, Any]], int]:
+        """Return a filtered, sorted catalogue page in a constant query count.
+
+        Shape metrics exclude context nodes. ``breadth`` is the maximum number
+        of nodes at any depth. ``avg_branching_factor`` is child edges divided
+        by internal nodes. ``branchiness`` matches :mod:`graph_stats`:
+        ``(leaf_count - 1) / (descendant_count - 1)``, or zero for trees with
+        at most one descendant.
+        """
+        where = ["r.parent_id IS NULL", "r.kind != 'context'"]
+        params: list[Any] = []
+        if archived is not None:
+            where.append("t.archived = ?")
+            params.append(int(archived))
+        for key, values in (("category", category), ("domain", domain)):
+            if values:
+                marks = ",".join("?" for _ in values)
+                where.append(f"json_extract(t.metadata_json, '$.{key}') IN ({marks})")
+                params.extend(values)
+        for column, values in (("source", source), ("model", model)):
+            if values:
+                marks = ",".join("?" for _ in values)
+                expression = (
+                    "json_extract(fn.metadata_json, '$.source')"
+                    if column == "source"
+                    else "fn.model"
+                )
+                fallback = (
+                    " OR json_extract(t.metadata_json, '$.source') IN ("
+                    + marks
+                    + ")"
+                    if column == "source"
+                    else ""
+                )
+                where.append(
+                    f"(EXISTS (SELECT 1 FROM nodes fn WHERE fn.tree_id = t.id "
+                    f"AND {expression} IN ({marks})){fallback})"
+                )
+                params.extend(values)
+                if fallback:
+                    params.extend(values)
+        if metadata_query:
+            where.append(
+                "lower(coalesce(t.name,'') || ' ' || "
+                "coalesce(json_extract(t.metadata_json,'$.category'),'') || ' ' || "
+                "coalesce(json_extract(t.metadata_json,'$.domain'),'') || ' ' || "
+                "coalesce(json_extract(t.metadata_json,'$.source'),'') || ' ' || r.id) LIKE ?"
+            )
+            params.append(f"%{metadata_query.lower()}%")
+        if tree_ids is not None:
+            if not tree_ids:
+                return [], 0
+            marks = ",".join("?" for _ in tree_ids)
+            where.append(f"t.id IN ({marks})")
+            params.extend(tree_ids)
+
+        order_columns = {
+            "recent": "updated_at",
+            "created": "created_at",
+            "nodes": "node_count",
+            "breadth": "breadth",
+            "branching": "avg_branching_factor",
+            "name": "sort_name",
+        }
+        order_column = order_columns.get(sort, "updated_at")
+        direction = "DESC" if descending else "ASC"
+        sql = f"""
+            WITH RECURSIVE eligible AS (
+                SELECT t.id AS tree_id, t.current_node_id, t.name,
+                       t.created_at, t.updated_at, t.archived,
+                       t.metadata_json, r.id AS root_id, r.text AS root_text
+                FROM trees t JOIN nodes r ON r.tree_id = t.id
+                WHERE {' AND '.join(where)}
+            ), walk(tree_id, id, depth) AS (
+                SELECT e.tree_id, e.root_id, 0 FROM eligible e
+                UNION ALL
+                SELECT w.tree_id, n.id, w.depth + 1
+                FROM walk w JOIN nodes n ON n.parent_id = w.id
+                WHERE n.kind != 'context'
+            ), widths AS (
+                SELECT tree_id, depth, count(*) AS width FROM walk
+                GROUP BY tree_id, depth
+            ), metrics AS (
+                SELECT w.tree_id, count(*) AS node_count,
+                       max(widths.width) AS breadth,
+                       sum(NOT EXISTS (
+                           SELECT 1 FROM nodes c
+                           WHERE c.parent_id = w.id AND c.kind != 'context'
+                       )) AS leaf_count
+                FROM walk w JOIN widths USING (tree_id, depth)
+                GROUP BY w.tree_id
+            ), catalog AS (
+                SELECT e.*, m.node_count, m.breadth,
+                       CASE WHEN (m.node_count - m.leaf_count) = 0 THEN 0.0
+                            ELSE (m.node_count - 1.0) /
+                                 (m.node_count - m.leaf_count)
+                       END AS avg_branching_factor,
+                       CASE WHEN m.node_count <= 2 THEN 0.0
+                            ELSE (m.leaf_count - 1.0) / (m.node_count - 2.0)
+                       END AS branchiness,
+                       lower(coalesce(e.name, e.root_id)) AS sort_name
+                FROM eligible e JOIN metrics m USING (tree_id)
+            ), page AS (
+                SELECT *, count(*) OVER () AS total FROM catalog
+                ORDER BY {order_column} {direction}, root_id {direction}
+                LIMIT ? OFFSET ?
+            )
+            SELECT p.*,
+                   current.text AS leaf_text,
+                   json_extract(p.metadata_json, '$.category') AS category,
+                   json_extract(p.metadata_json, '$.domain') AS domain,
+                   (SELECT json_group_array(value) FROM (
+                       SELECT DISTINCT json_extract(n.metadata_json, '$.source') value
+                       FROM nodes n WHERE n.tree_id = p.tree_id AND value IS NOT NULL
+                       UNION SELECT json_extract(p.metadata_json, '$.source')
+                       WHERE json_extract(p.metadata_json, '$.source') IS NOT NULL
+                       ORDER BY value
+                   )) AS sources_json,
+                   (SELECT json_group_array(value) FROM (
+                       SELECT DISTINCT n.model value FROM nodes n
+                       WHERE n.tree_id = p.tree_id AND n.model IS NOT NULL ORDER BY value
+                   )) AS models_json
+            FROM page p LEFT JOIN nodes current ON current.id = p.current_node_id
+            ORDER BY {order_column} {direction}, root_id {direction}
+        """
+        with closing(self.connect()) as conn:
+            rows = conn.execute(sql, [*params, limit, offset]).fetchall()
+        total = int(rows[0]["total"]) if rows else 0
+        return [dict(row) for row in rows], total
+
+    def tree_catalog_facets(
+        self, *, archived: bool | None = False
+    ) -> dict[str, list[tuple[str, int]]]:
+        """Return catalogue facet counts in one SQL query."""
+        archive_sql = "" if archived is None else "WHERE t.archived = ?"
+        params: list[Any] = [] if archived is None else [int(archived)]
+        sql = f"""
+            WITH eligible AS (SELECT t.id, t.metadata_json FROM trees t {archive_sql}),
+            values_(facet, tree_id, value) AS (
+                SELECT 'category', id, json_extract(metadata_json, '$.category') FROM eligible
+                UNION ALL SELECT 'domain', id, json_extract(metadata_json, '$.domain') FROM eligible
+                UNION SELECT 'source', e.id, json_extract(e.metadata_json, '$.source') FROM eligible e
+                UNION SELECT 'source', n.tree_id, json_extract(n.metadata_json, '$.source')
+                    FROM nodes n JOIN eligible e ON e.id = n.tree_id
+                UNION SELECT 'model', n.tree_id,
+                    CASE WHEN instr(n.model, '/') > 0
+                         THEN substr(n.model, instr(n.model, '/') + 1) ELSE n.model END
+                    FROM nodes n JOIN eligible e ON e.id = n.tree_id
+            )
+            SELECT facet, value, count(DISTINCT tree_id) AS count
+            FROM values_ WHERE value IS NOT NULL AND value != ''
+            GROUP BY facet, value ORDER BY facet, count DESC, value
+        """
+        result: dict[str, list[tuple[str, int]]] = {
+            "category": [], "domain": [], "source": [], "model": []
+        }
+        with closing(self.connect()) as conn:
+            for row in conn.execute(sql, params):
+                result[str(row["facet"])].append((str(row["value"]), int(row["count"])))
+        return result
+
+    def root_summaries(self, *, archived: bool | None = False) -> list[dict[str, Any]]:
+        """Return legacy root summaries in one query (no per-root lookups)."""
+        archive_sql = "" if archived is None else "AND t.archived = ?"
+        params: list[Any] = [] if archived is None else [int(archived)]
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT r.id, r.tree_id, r.text, t.name, r.created_at, t.archived,
+                       count(n.id) - 1 AS descendant_count
+                FROM trees t JOIN nodes r ON r.tree_id = t.id
+                JOIN nodes n ON n.tree_id = t.id AND n.kind != 'context'
+                WHERE r.parent_id IS NULL AND r.kind != 'context' {archive_sql}
+                GROUP BY r.id ORDER BY r.created_at DESC, r.id DESC
+                """,
+                params,
+            ).fetchall()
+        return [
+            {
+                "id": str(row["id"]), "tree_id": str(row["tree_id"]),
+                "text": str(row["text"])[:200], "name": row["name"],
+                "created_at": str(row["created_at"]),
+                "descendant_count": int(row["descendant_count"]),
+                "archived": bool(row["archived"]),
+            }
+            for row in rows
+        ]
+
     def node_tree_map(self, node_ids: list[str]) -> dict[str, str]:
         """Map node ids to their tree id in bulk. Unknown ids are omitted."""
         out: dict[str, str] = {}
@@ -1379,6 +1581,9 @@ class GenerationStore:
     def _insert(self, node: Node) -> None:
         with closing(self.connect()) as conn, conn:
             self._insert_with_conn(conn, node)
+            conn.execute(
+                "UPDATE trees SET updated_at = ? WHERE id = ?", (_now(), node.tree_id)
+            )
 
     def _insert_with_conn(self, conn: sqlite3.Connection, node: Node) -> None:
         conn.execute(
