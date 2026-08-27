@@ -174,14 +174,22 @@ def test_tree_catalog_shape_sorts_in_both_directions(tmp_path) -> None:
     parent = chain
     for index in range(3):
         parent = store.add_child(
-            parent.id, f" chain {index}", model="m", strategy="s",
-            max_tokens=1, temperature=0.0,
+            parent.id,
+            f" chain {index}",
+            model="m",
+            strategy="s",
+            max_tokens=1,
+            temperature=0.0,
         )
     wide = store.create_root("wide")
     for index in range(3):
         store.add_child(
-            wide.id, f" wide {index}", model="m", strategy="s",
-            max_tokens=1, temperature=0.0,
+            wide.id,
+            f" wide {index}",
+            model="m",
+            strategy="s",
+            max_tokens=1,
+            temperature=0.0,
         )
 
     with TestClient(create_app(store)) as client:
@@ -205,9 +213,11 @@ def test_tree_catalog_query_count_is_constant_across_page_sizes(
     def traced_connect():
         conn = original_connect()
         conn.set_trace_callback(
-            lambda sql: select_counts.append(1)
-            if sql.lstrip().upper().startswith(("SELECT", "WITH"))
-            else None
+            lambda sql: (
+                select_counts.append(1)
+                if sql.lstrip().upper().startswith(("SELECT", "WITH"))
+                else None
+            )
         )
         return conn
 

@@ -68,8 +68,18 @@ def build_corpus(path: Path, tree_count: int, node_count: int) -> GenerationStor
         current_id = f"{tree_id}n{size - 1:04d}"
         trees.append(
             (
-                tree_id, current_id, f"Synthetic {tree_index}", 1, 0, 200, 1,
-                "[]", stamp, updated, metadata, archived,
+                tree_id,
+                current_id,
+                f"Synthetic {tree_index}",
+                1,
+                0,
+                200,
+                1,
+                "[]",
+                stamp,
+                updated,
+                metadata,
+                archived,
             )
         )
         for node_index in range(size):
@@ -85,13 +95,24 @@ def build_corpus(path: Path, tree_count: int, node_count: int) -> GenerationStor
                 )
                 kind = "text"
             text = (
-                "unique catalogue needle" if tree_index == 1 and node_index == 1
+                "unique catalogue needle"
+                if tree_index == 1 and node_index == 1
                 else f"synthetic text {tree_index} {node_index}"
             )
             nodes.append(
                 (
-                    node_id, tree_id, parent_id, kind, text, None,
-                    "openai/gpt-5", "synthetic", 16, 0.0, 0, stamp,
+                    node_id,
+                    tree_id,
+                    parent_id,
+                    kind,
+                    text,
+                    None,
+                    "openai/gpt-5",
+                    "synthetic",
+                    16,
+                    0.0,
+                    0,
+                    stamp,
                     json.dumps({"source": "synthetic"}),
                 )
             )
@@ -106,7 +127,9 @@ def build_corpus(path: Path, tree_count: int, node_count: int) -> GenerationStor
             "INSERT INTO nodes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             nodes,
         )
-        conn.execute("CREATE VIRTUAL TABLE nodes_fts USING fts5(node_id UNINDEXED, text)")
+        conn.execute(
+            "CREATE VIRTUAL TABLE nodes_fts USING fts5(node_id UNINDEXED, text)"
+        )
         conn.executemany("INSERT INTO nodes_fts(node_id, text) VALUES (?, ?)", fts)
         conn.execute("ANALYZE")
     return store

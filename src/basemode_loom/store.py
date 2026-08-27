@@ -879,9 +879,7 @@ class GenerationStore:
                     "THEN substr(fn.model, instr(fn.model, '/') + 1) ELSE fn.model END"
                 )
                 fallback = (
-                    " OR json_extract(t.metadata_json, '$.source') IN ("
-                    + marks
-                    + ")"
+                    " OR json_extract(t.metadata_json, '$.source') IN (" + marks + ")"
                     if column == "source"
                     else ""
                 )
@@ -961,7 +959,7 @@ class GenerationStore:
                        t.created_at, t.updated_at, t.archived,
                        t.metadata_json, r.id AS root_id, r.text AS root_text
                 FROM trees t CROSS JOIN nodes r ON r.tree_id = t.id
-                WHERE {' AND '.join(where)}
+                WHERE {" AND ".join(where)}
             ){scope_cte}, walk(tree_id, id, depth) AS (
                 SELECT e.tree_id, e.root_id, 0 FROM {walk_source} e
                 UNION ALL
@@ -1017,7 +1015,7 @@ class GenerationStore:
                 count_row = conn.execute(
                     f"""
                     SELECT count(*) FROM trees t CROSS JOIN nodes r ON r.tree_id = t.id
-                    WHERE {' AND '.join(where)}
+                    WHERE {" AND ".join(where)}
                     """,
                     params,
                 ).fetchone()
@@ -1049,7 +1047,10 @@ class GenerationStore:
             GROUP BY facet, value ORDER BY facet, count DESC, value
         """
         result: dict[str, list[tuple[str, int]]] = {
-            "category": [], "domain": [], "source": [], "model": []
+            "category": [],
+            "domain": [],
+            "source": [],
+            "model": [],
         }
         with closing(self.connect()) as conn:
             for row in conn.execute(sql, params):
@@ -1074,8 +1075,10 @@ class GenerationStore:
             ).fetchall()
         return [
             {
-                "id": str(row["id"]), "tree_id": str(row["tree_id"]),
-                "text": str(row["text"])[:200], "name": row["name"],
+                "id": str(row["id"]),
+                "tree_id": str(row["tree_id"]),
+                "text": str(row["text"])[:200],
+                "name": row["name"],
                 "created_at": str(row["created_at"]),
                 "descendant_count": int(row["descendant_count"]),
                 "archived": bool(row["archived"]),

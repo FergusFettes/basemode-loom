@@ -147,8 +147,7 @@ def query_tree_catalog(
         )
         sources = tuple(json.loads(row["sources_json"] or "[]"))
         models = tuple(
-            value.split("/")[-1]
-            for value in json.loads(row["models_json"] or "[]")
+            value.split("/")[-1] for value in json.loads(row["models_json"] or "[]")
         )
         current_id = row["current_node_id"]
         leaf_preview = (

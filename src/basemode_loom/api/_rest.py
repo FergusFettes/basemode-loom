@@ -266,8 +266,15 @@ def build_embeddings(
 
 
 TreeSort = Literal[
-    "auto", "relevance", "recent", "created", "oldest", "nodes", "breadth",
-    "branching", "name",
+    "auto",
+    "relevance",
+    "recent",
+    "created",
+    "oldest",
+    "nodes",
+    "breadth",
+    "branching",
+    "name",
 ]
 ArchiveSelector = Literal["active", "archived", "both"]
 SortDirection = Literal["asc", "desc"]
