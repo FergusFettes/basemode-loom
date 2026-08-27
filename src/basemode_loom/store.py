@@ -875,7 +875,8 @@ class GenerationStore:
                 expression = (
                     "json_extract(fn.metadata_json, '$.source')"
                     if column == "source"
-                    else "fn.model"
+                    else "CASE WHEN instr(fn.model, '/') > 0 "
+                    "THEN substr(fn.model, instr(fn.model, '/') + 1) ELSE fn.model END"
                 )
                 fallback = (
                     " OR json_extract(t.metadata_json, '$.source') IN ("
@@ -916,15 +917,53 @@ class GenerationStore:
         }
         order_column = order_columns.get(sort, "updated_at")
         direction = "DESC" if descending else "ASC"
+        paginate_before_shape = sort in {"recent", "created", "nodes", "name"}
+        if sort == "nodes":
+            scope_cte = f""", node_counts AS (
+                SELECT tree_id, count(*) AS sort_node_count FROM nodes
+                WHERE kind != 'context' GROUP BY tree_id
+            ), scope AS (
+                SELECT e.*, n.sort_node_count, count(*) OVER () AS total,
+                       lower(coalesce(e.name, e.root_id)) AS sort_name
+                FROM eligible e JOIN node_counts n USING (tree_id)
+                ORDER BY sort_node_count {direction}, root_id {direction}
+                LIMIT ? OFFSET ?
+            )"""
+            walk_source = "scope"
+            catalog_source = "scope"
+            page_cte = ""
+            result_source = "catalog"
+        elif paginate_before_shape:
+            scope_cte = f""", scope AS (
+                SELECT *, count(*) OVER () AS total,
+                       lower(coalesce(name, root_id)) AS sort_name
+                FROM eligible
+                ORDER BY {order_column} {direction}, root_id {direction}
+                LIMIT ? OFFSET ?
+            )"""
+            walk_source = "scope"
+            catalog_source = "scope"
+            page_cte = ""
+            result_source = "catalog"
+        else:
+            scope_cte = ""
+            walk_source = "eligible"
+            catalog_source = "eligible"
+            page_cte = f""", page AS (
+                SELECT *, count(*) OVER () AS total FROM catalog
+                ORDER BY {order_column} {direction}, root_id {direction}
+                LIMIT ? OFFSET ?
+            )"""
+            result_source = "page"
         sql = f"""
             WITH RECURSIVE eligible AS (
                 SELECT t.id AS tree_id, t.current_node_id, t.name,
                        t.created_at, t.updated_at, t.archived,
                        t.metadata_json, r.id AS root_id, r.text AS root_text
-                FROM trees t JOIN nodes r ON r.tree_id = t.id
+                FROM trees t CROSS JOIN nodes r ON r.tree_id = t.id
                 WHERE {' AND '.join(where)}
-            ), walk(tree_id, id, depth) AS (
-                SELECT e.tree_id, e.root_id, 0 FROM eligible e
+            ){scope_cte}, walk(tree_id, id, depth) AS (
+                SELECT e.tree_id, e.root_id, 0 FROM {walk_source} e
                 UNION ALL
                 SELECT w.tree_id, n.id, w.depth + 1
                 FROM walk w JOIN nodes n ON n.parent_id = w.id
@@ -951,12 +990,8 @@ class GenerationStore:
                             ELSE (m.leaf_count - 1.0) / (m.node_count - 2.0)
                        END AS branchiness,
                        lower(coalesce(e.name, e.root_id)) AS sort_name
-                FROM eligible e JOIN metrics m USING (tree_id)
-            ), page AS (
-                SELECT *, count(*) OVER () AS total FROM catalog
-                ORDER BY {order_column} {direction}, root_id {direction}
-                LIMIT ? OFFSET ?
-            )
+                FROM {catalog_source} e JOIN metrics m USING (tree_id)
+            ){page_cte}
             SELECT p.*,
                    current.text AS leaf_text,
                    json_extract(p.metadata_json, '$.category') AS category,
@@ -972,11 +1007,21 @@ class GenerationStore:
                        SELECT DISTINCT n.model value FROM nodes n
                        WHERE n.tree_id = p.tree_id AND n.model IS NOT NULL ORDER BY value
                    )) AS models_json
-            FROM page p LEFT JOIN nodes current ON current.id = p.current_node_id
+            FROM {result_source} p
+            LEFT JOIN nodes current ON current.id = p.current_node_id
             ORDER BY {order_column} {direction}, root_id {direction}
         """
         with closing(self.connect()) as conn:
             rows = conn.execute(sql, [*params, limit, offset]).fetchall()
+            if not rows and offset:
+                count_row = conn.execute(
+                    f"""
+                    SELECT count(*) FROM trees t CROSS JOIN nodes r ON r.tree_id = t.id
+                    WHERE {' AND '.join(where)}
+                    """,
+                    params,
+                ).fetchone()
+                return [], int(count_row[0]) if count_row else 0
         total = int(rows[0]["total"]) if rows else 0
         return [dict(row) for row in rows], total
 

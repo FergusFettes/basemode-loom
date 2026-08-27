@@ -126,6 +126,10 @@ def create_indexes(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_nodes_tree_model ON nodes(tree_id, model)"
     )
     conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_tree_root ON nodes(tree_id) "
+        "WHERE parent_id IS NULL AND kind != 'context'"
+    )
+    conn.execute(
         """
         CREATE UNIQUE INDEX IF NOT EXISTS idx_nodes_one_checked_out_child
         ON nodes(parent_id)
