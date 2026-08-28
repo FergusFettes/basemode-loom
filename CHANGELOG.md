@@ -22,6 +22,15 @@ under Unreleased.
 
 ### Changed
 
+- Navigation on a deep tree is roughly twenty times faster. A session state
+  snapshot read the node's ancestry by walking parent links one query at a
+  time — two SQLite connections and three statements per ancestor — and did it
+  five times over, once each for the full text, the context, the segments and
+  the prompt entries. The ancestry is now one recursive query, read once per
+  snapshot and shared. On a 1109-node tree at depth 171 that takes `get_state`
+  from ~270ms to ~12ms. Connections also stop re-asserting `journal_mode` on
+  every open; the journal mode belongs to the database file and is set once.
+
 - Generating no longer moves the reader. A finished branch is saved and left
   for the user to pick, rather than becoming the checked-out child and (when
   the batch held one continuation) the current node. Since branches now save

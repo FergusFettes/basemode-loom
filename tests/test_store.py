@@ -464,3 +464,36 @@ def test_update_text_rewrites_a_node_in_place(store):
     assert updated.text == "ROOT"
     assert updated.id == root.id
     assert store.full_text(child.id) == "ROOT child"
+
+
+def test_lineage_returns_ancestors_root_first_down_a_deep_chain(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    parent, children = store.save_continuations(
+        "0", [" 1"], model="m", strategy="system", max_tokens=5, temperature=0.9
+    )
+    tip = children[0]
+    for step in range(2, 60):
+        _, kids = store.save_continuations(
+            f" {step}",
+            [f" {step}"],
+            model="m",
+            strategy="system",
+            max_tokens=5,
+            temperature=0.9,
+            parent_id=tip.id,
+        )
+        tip = kids[0]
+
+    lineage = store.lineage(tip.id)
+
+    assert [node.id for node in lineage][0] == parent.id
+    assert [node.id for node in lineage][-1] == tip.id
+    assert len(lineage) == 60
+    assert store.full_text(tip.id) == "".join(node.text for node in lineage)
+
+
+def test_lineage_rejects_an_unknown_node(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+
+    with pytest.raises(KeyError):
+        store.lineage("nosuchnode")

@@ -346,19 +346,25 @@ class LoomSession:
             tree_cost_usd,
             tree_pricing_complete,
         ) = self._tree_usage(root.id, tree_nodes)
+        # The ancestry is the most expensive thing a snapshot reads, and the
+        # full text, the context and the segments are all views of it. Read it
+        # once and derive the rest rather than walking it per field.
+        lineage = store.lineage(self._current_id)
+        full_text = "".join(n.text for n in lineage if n.kind != "context")
+        context = self._current_context(node, lineage)
         lineage_segments = tuple(
             LineageSegment(
                 text=n.text,
                 role=_node_role(n),
                 node_id=n.id,
             )
-            for n in store.lineage(self._current_id)
+            for n in lineage
             if n.kind != "context"
         )
         return SessionState(
             current_node_id=self._current_id,
             current_node=node,
-            full_text=store.full_text(self._current_id),
+            full_text=full_text,
             children=children,
             selected_child_idx=selected_idx,
             descendant_counts=counts,
@@ -371,7 +377,7 @@ class LoomSession:
             global_n_branches=self.global_n_branches,
             rewind_split_tokens=bool(self.rewind_split_tokens),
             model_plan=self.model_plan,
-            context=self._current_context(node),
+            context=context,
             root_id=root.id,
             view_mode=self.view_mode,
             hoisted_node_id=self._hoisted_id,
@@ -385,9 +391,7 @@ class LoomSession:
             tree_total_tokens=tree_total_tokens,
             tree_cost_usd=tree_cost_usd,
             tree_pricing_complete=tree_pricing_complete,
-            prompt_entries=self._build_prompt_entries(
-                store.full_text(self._current_id), self._current_context(node)
-            ),
+            prompt_entries=self._build_prompt_entries(full_text, context),
         )
 
     def _get_continuation_text(self, selected_child: Node) -> str:
@@ -1497,8 +1501,9 @@ class LoomSession:
             )
         return tuple(entries)
 
-    def _current_context(self, node: Node) -> str:
-        for ancestor in reversed(self._store.lineage(node.id)):
+    def _current_context(self, node: Node, lineage: list[Node] | None = None) -> str:
+        ancestry = lineage if lineage is not None else self._store.lineage(node.id)
+        for ancestor in reversed(ancestry):
             if ancestor.context_id:
                 context = self._store.get(ancestor.context_id)
                 if context is not None and context.kind == "context":

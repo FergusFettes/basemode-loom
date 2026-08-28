@@ -246,13 +246,16 @@ class GenerationStore:
     def connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=30.0)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")
+        # Only the per-connection pragmas belong here. The journal mode is a
+        # property of the database file, set once in `_init_db`; re-asserting
+        # it on every connection touches the header for nothing.
         conn.execute("PRAGMA busy_timeout = 30000")
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
     def _init_db(self) -> None:
         with closing(self.connect()) as conn, conn:
+            conn.execute("PRAGMA journal_mode = WAL")
             _schema.initialize(
                 conn,
                 now=_now,
@@ -1611,15 +1614,33 @@ class GenerationStore:
         return children[branch_index - 1]
 
     def lineage(self, node_id: str) -> list[Node]:
-        nodes: list[Node] = []
-        node = self.get(node_id)
-        while node is not None:
-            nodes.append(node)
-            node = self.get(node.parent_id) if node.parent_id else None
-        nodes.reverse()
-        if not nodes:
+        """Root-first ancestry of a node, in one query.
+
+        Walking parent links one `get()` at a time costs two connections and
+        three statements per ancestor, which a deep tree turns into hundreds
+        of round trips for a single state snapshot.
+        """
+        resolved = self.resolve_node_id(node_id)
+        if resolved is None:
             raise KeyError(f"unknown node: {node_id}")
-        return nodes
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                """
+                WITH RECURSIVE ancestry(id, depth) AS (
+                    SELECT id, 0 FROM nodes WHERE id = ?
+                    UNION ALL
+                    SELECT n.parent_id, a.depth + 1
+                    FROM nodes n JOIN ancestry a ON n.id = a.id
+                    WHERE n.parent_id IS NOT NULL
+                )
+                SELECT nodes.* FROM ancestry JOIN nodes ON nodes.id = ancestry.id
+                ORDER BY ancestry.depth DESC
+                """,
+                (resolved,),
+            ).fetchall()
+        if not rows:
+            raise KeyError(f"unknown node: {node_id}")
+        return [self._node(row) for row in rows]
 
     def full_text(self, node_id: str) -> str:
         return "".join(
