@@ -452,10 +452,17 @@ class LoomSession:
             raise ValueError("node is outside this session's tree")
 
         lineage = self._store.lineage(node.id)
-        for parent, child in pairwise(lineage):
-            siblings = self._store.children(parent.id)
-            self._store.set_checked_out_child(parent.id, child.id)
-            self._child_path[parent.id] = siblings.index(child)
+        # Read every level's siblings in one query and write the whole path's
+        # checked-out flags in one transaction: doing it a level at a time is
+        # what made a deep checkout cost as much as the rest of a snapshot.
+        pairs = [(parent.id, child.id) for parent, child in pairwise(lineage)]
+        siblings_by_parent = self._store.children_of_many([p for p, _ in pairs])
+        self._store.set_checked_out_path(pairs)
+        for parent_id, child_id in pairs:
+            siblings = siblings_by_parent.get(parent_id, [])
+            self._child_path[parent_id] = next(
+                (i for i, sibling in enumerate(siblings) if sibling.id == child_id), 0
+            )
 
         # The reader presents a current node plus one highlighted child. Keep
         # the clicked node in that child position instead of descending into it.

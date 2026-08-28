@@ -661,6 +661,53 @@ class GenerationStore:
             ).fetchall()
         return [self._node(row) for row in rows]
 
+    def children_of_many(self, parent_ids: list[str]) -> dict[str, list[Node]]:
+        """Children for several parents at once, keyed by parent id.
+
+        Same ordering as `children`. One query for a whole path, rather than
+        one per level.
+        """
+        if not parent_ids:
+            return {}
+        unique = list(dict.fromkeys(parent_ids))
+        placeholders = ",".join("?" * len(unique))
+        with closing(self.connect()) as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM nodes
+                WHERE parent_id IN ({placeholders}) AND kind != 'context'
+                ORDER BY created_at, id
+                """,
+                unique,
+            ).fetchall()
+        grouped: dict[str, list[Node]] = {pid: [] for pid in unique}
+        for row in rows:
+            grouped[row["parent_id"]].append(self._node(row))
+        return grouped
+
+    def set_checked_out_path(self, pairs: list[tuple[str, str]]) -> None:
+        """Mark a whole parent→child path as checked out in one transaction.
+
+        Applying this a level at a time costs six connections and a separate
+        transaction per ancestor, which a deep checkout multiplies out into a
+        thousand round trips.
+        """
+        if not pairs:
+            return
+        parent_ids = [parent for parent, _ in pairs]
+        child_ids = [child for _, child in pairs]
+        parents = ",".join("?" * len(parent_ids))
+        children = ",".join("?" * len(child_ids))
+        with closing(self.connect()) as conn, conn:
+            conn.execute(
+                f"UPDATE nodes SET checked_out = 0 WHERE parent_id IN ({parents})",
+                parent_ids,
+            )
+            conn.execute(
+                f"UPDATE nodes SET checked_out = 1 WHERE id IN ({children})",
+                child_ids,
+            )
+
     def tree(self, node_id: str) -> list[Node]:
         """Return all nodes in a tree, ordered by creation time."""
         resolved = self.resolve_node_id(node_id)

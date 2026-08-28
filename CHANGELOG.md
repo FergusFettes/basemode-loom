@@ -31,6 +31,12 @@ under Unreleased.
   from ~270ms to ~12ms. Connections also stop re-asserting `journal_mode` on
   every open; the journal mode belongs to the database file and is set once.
 
+- Checking out a node no longer walks its ancestry a level at a time. Reading
+  each level's siblings and writing each level's checked-out flag separately
+  cost six connections and a transaction per ancestor; the siblings are now one
+  query and the flags one transaction. Over a websocket, checking out a node at
+  depth 170 goes from ~253ms to ~35ms.
+
 - Generating no longer moves the reader. A finished branch is saved and left
   for the user to pick, rather than becoming the checked-out child and (when
   the batch held one continuation) the current node. Since branches now save
