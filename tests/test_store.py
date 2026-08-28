@@ -486,8 +486,8 @@ def test_lineage_returns_ancestors_root_first_down_a_deep_chain(tmp_path) -> Non
 
     lineage = store.lineage(tip.id)
 
-    assert [node.id for node in lineage][0] == parent.id
-    assert [node.id for node in lineage][-1] == tip.id
+    assert lineage[0].id == parent.id
+    assert lineage[-1].id == tip.id
     assert len(lineage) == 60
     assert store.full_text(tip.id) == "".join(node.text for node in lineage)
 
