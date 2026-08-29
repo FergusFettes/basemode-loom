@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from basemode_loom.store import AmbiguousNodeReference, GenerationStore, Node
@@ -527,3 +529,42 @@ def test_import_nodes_orders_a_context_ahead_of_the_node_using_it(tmp_path) -> N
     assert imported is not None
     assert imported.context_id == context.id
     assert target.get(context.id) is not None
+
+
+def test_diff_nodes_ignores_metadata_key_order(tmp_path) -> None:
+    """The same metadata written in a different key order is not a change."""
+    import json
+    import sqlite3
+    from contextlib import closing
+
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    _, children = store.save_continuations(
+        "A", [" B"], model="m", strategy="system", max_tokens=5, temperature=0.9
+    )
+    node_id = children[0].id
+    store.update_metadata(node_id, {"alpha": 1, "beta": {"x": 1, "y": 2}})
+    stored = store.get(node_id)
+    assert stored is not None
+
+    # Re-write the same mapping with its keys deliberately out of order.
+    reordered = json.dumps(dict(reversed(list(stored.metadata.items()))))
+    with closing(sqlite3.connect(store.db_path)) as conn, conn:
+        conn.execute(
+            "UPDATE nodes SET metadata_json = ? WHERE id = ?", (reordered, node_id)
+        )
+
+    assert store.diff_nodes([stored]) == []
+
+
+def test_diff_nodes_reports_a_changed_text(tmp_path) -> None:
+    store = GenerationStore(tmp_path / "generations.sqlite")
+    _, children = store.save_continuations(
+        "A", [" B"], model="m", strategy="system", max_tokens=5, temperature=0.9
+    )
+    node = children[0]
+
+    edited = dataclasses.replace(node, text=" B edited")
+
+    assert [n.id for n in store.diff_nodes([edited])] == [node.id]
+    assert store.update_nodes([edited]) == 1
+    assert store.get(node.id).text == " B edited"

@@ -857,7 +857,10 @@ class GenerationStore:
                         row["max_tokens"],
                         row["temperature"],
                         row["context_id"],
-                        row["metadata_json"],
+                        # Parsed, not the raw column: two databases can store
+                        # the same metadata with different key order, and that
+                        # is not a change.
+                        json.loads(row["metadata_json"]),
                     )
         changed = []
         for node_id, node in by_id.items():
@@ -871,7 +874,7 @@ class GenerationStore:
                 node.max_tokens,
                 node.temperature,
                 node.context_id,
-                json.dumps(node.metadata, sort_keys=True),
+                node.metadata,
             )
             if here != there:
                 changed.append(node)
