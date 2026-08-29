@@ -33,6 +33,14 @@ under Unreleased.
   reports the plan per tree without writing, and `--tree` limits it to named
   trees.
 
+- `basemode-loom import --update` also overwrites the content of nodes already
+  present when it differs at the source — text, model, generation settings and
+  metadata. A node's place in the tree and either side's reading position are
+  never rewritten: those are not content, and taking them from another database
+  would restructure this one rather than update it. There is no per-node
+  modified time to arbitrate a conflict with, so the source simply wins; without
+  the flag an import stays purely additive.
+
 - A generated node records the opening of its stream under `boundary` when
   basemode's healing rewrote it — `raw` as the provider sent it, `streamed`
   as the stream repair passed it on — so a botched seam can be attributed to

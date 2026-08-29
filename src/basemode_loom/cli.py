@@ -982,12 +982,26 @@ def loom_import(
             help="Keep the source's checked-out flags even when adding to a tree that already exists here",
         ),
     ] = False,
+    update: Annotated[
+        bool,
+        typer.Option(
+            "--update",
+            help="Also overwrite the content of nodes already here when it differs at the source",
+        ),
+    ] = False,
 ) -> None:
     """Add trees and nodes from another database or export.
 
-    Nodes already present are left exactly as they are: this only ever adds.
+    Nodes already present are left exactly as they are unless `--update` is
+    given, in which case their content is overwritten from the source. Without
+    it an import only ever adds.
     Ids are uuids, so a tree carries its identity between machines and an
     import can be repeated without duplicating anything.
+
+    `--update` rewrites a node's text, model, settings and metadata; it never
+    moves a node in the tree and never touches where either side was reading.
+    There is no per-node modified time to arbitrate with, so the source simply
+    wins: check `--dry-run` first.
 
     A node joining a tree that already exists here arrives with its
     checked-out flag cleared, so an import cannot move where this database
@@ -1012,17 +1026,20 @@ def loom_import(
     store = GenerationStore(db)
     present = store.existing_node_ids([n.id for n in nodes])
     incoming = [n for n in nodes if n.id not in present]
+    outdated = store.diff_nodes([n for n in nodes if n.id in present]) if update else []
     known_trees = set(store.tree_index())
     # Naming considers every tree in the source, not just the ones with new
     # nodes: a tree imported before names were carried across has nothing new
     # to add and still wants its name.
     trees_in_scope = {n.tree_id for n in nodes}
-    if not incoming:
+    if not incoming and not outdated:
         named = _carry_tree_names(
             store, trees_in_scope, known_trees, source_trees, dry_run=dry_run
         )
         console.print(
-            f"[dim]No new nodes: all {len(nodes)} are already here.[/dim]"
+            f"[dim]Nothing to do: all {len(nodes)} nodes are already here"
+            + ("" if update else ", and --update was not given")
+            + ".[/dim]"
             + (f" [green]Named {named} trees.[/green]" if named else "")
         )
         return
@@ -1033,37 +1050,48 @@ def loom_import(
             for n in incoming
         ]
 
-    table = Table(box=None, pad_edge=False)
-    table.add_column("Tree")
-    table.add_column("Name")
-    table.add_column("Nodes", justify="right")
     by_tree: dict[str, int] = {}
     for node in incoming:
         by_tree[node.tree_id] = by_tree.get(node.tree_id, 0) + 1
-    for tree_id, count in sorted(by_tree.items(), key=lambda kv: -kv[1]):
-        table.add_row(
-            tree_id[:8],
-            (source_trees.get(tree_id) or {}).get("name") or "[dim]—[/dim]",
-            f"{count} new" if tree_id in known_trees else f"{count} (new tree)",
-        )
-    console.print(table)
+    if by_tree:
+        table = Table(box=None, pad_edge=False)
+        table.add_column("Tree")
+        table.add_column("Name")
+        table.add_column("Nodes", justify="right")
+        for tree_id, count in sorted(by_tree.items(), key=lambda kv: -kv[1]):
+            table.add_row(
+                tree_id[:8],
+                (source_trees.get(tree_id) or {}).get("name") or "[dim]—[/dim]",
+                f"{count} new" if tree_id in known_trees else f"{count} (new tree)",
+            )
+        console.print(table)
 
     new_trees = sum(1 for tree_id in by_tree if tree_id not in known_trees)
-    summary = (
-        f"{len(incoming)} nodes across {len(by_tree)} trees ({new_trees} new), "
-        f"{len(nodes) - len(incoming)} already present"
-    )
+    work = []
+    if incoming:
+        work.append(
+            f"add {len(incoming)} nodes across {len(by_tree)} trees ({new_trees} new)"
+        )
+    if outdated:
+        work.append(f"update {len(outdated)} nodes already here")
+    summary = " and ".join(work) + f"; {len(nodes) - len(incoming)} already present"
     if dry_run:
         named = _carry_tree_names(
             store, trees_in_scope, known_trees, source_trees, dry_run=True
         )
-        console.print(f"[yellow]Would import {summary}[/yellow]", end="")
-        console.print(f"[yellow], naming {named} trees.[/yellow]" if named else ".")
+        if named:
+            summary += f", naming {named} trees"
+        console.print(f"[yellow]Would {summary}.[/yellow]")
         return
 
     inserted = store.import_nodes(incoming)
+    updated = store.update_nodes(outdated)
     named = _carry_tree_names(store, trees_in_scope, known_trees, source_trees)
-    console.print(f"[green]Imported {inserted} nodes.[/green] {summary}.")
+    console.print(
+        f"[green]Imported {inserted} nodes"
+        + (f", updated {updated}" if updated else "")
+        + f".[/green] {len(nodes) - len(incoming)} already present."
+    )
     if named:
         console.print(f"[dim]Named {named} trees from the source.[/dim]")
 

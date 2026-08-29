@@ -823,6 +823,86 @@ class GenerationStore:
                 found.update(str(row["id"]) for row in rows)
         return found
 
+    def diff_nodes(self, nodes: list[Node]) -> list[Node]:
+        """Of these nodes, the ones whose stored content differs from here.
+
+        Only the content a node carries is compared. Its place in the tree
+        (`parent_id`, `tree_id`), its identity (`created_at`) and the reading
+        position (`checked_out`) are deliberately left out: those are not
+        content, and rewriting them from another database would restructure
+        this one rather than update it.
+        """
+        if not nodes:
+            return []
+        by_id = {n.id: n for n in nodes}
+        stored: dict[str, tuple] = {}
+        ids = list(by_id)
+        with closing(self.connect()) as conn:
+            for start in range(0, len(ids), 500):
+                chunk = ids[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"""
+                    SELECT id, text, model, strategy, max_tokens, temperature,
+                           context_id, metadata_json
+                    FROM nodes WHERE id IN ({placeholders})
+                    """,
+                    chunk,
+                ).fetchall()
+                for row in rows:
+                    stored[str(row["id"])] = (
+                        row["text"],
+                        row["model"],
+                        row["strategy"],
+                        row["max_tokens"],
+                        row["temperature"],
+                        row["context_id"],
+                        row["metadata_json"],
+                    )
+        changed = []
+        for node_id, node in by_id.items():
+            here = stored.get(node_id)
+            if here is None:
+                continue
+            there = (
+                node.text,
+                node.model,
+                node.strategy,
+                node.max_tokens,
+                node.temperature,
+                node.context_id,
+                json.dumps(node.metadata, sort_keys=True),
+            )
+            if here != there:
+                changed.append(node)
+        return changed
+
+    def update_nodes(self, nodes: list[Node]) -> int:
+        """Overwrite the content of nodes already stored here."""
+        if not nodes:
+            return 0
+        with closing(self.connect()) as conn, conn:
+            for node in nodes:
+                conn.execute(
+                    """
+                    UPDATE nodes
+                    SET text = ?, model = ?, strategy = ?, max_tokens = ?,
+                        temperature = ?, context_id = ?, metadata_json = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        node.text,
+                        node.model,
+                        node.strategy,
+                        node.max_tokens,
+                        node.temperature,
+                        node.context_id,
+                        json.dumps(node.metadata, sort_keys=True),
+                        node.id,
+                    ),
+                )
+        return len(nodes)
+
     def import_nodes(self, nodes: list[Node]) -> int:
         """Insert nodes in topological order, skipping existing ids. Returns count inserted."""
         # Topological sort: parents before children, and a context node before

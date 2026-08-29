@@ -322,7 +322,7 @@ def test_import_dry_run_writes_nothing(tmp_path) -> None:
     )
 
     assert result.exit_code == 0, result.output
-    assert "Would import" in unstyle(result.output)
+    assert "Would add" in unstyle(result.output)
     assert GenerationStore(target_db).get(root_id) is None
 
 
@@ -418,3 +418,93 @@ def test_import_never_renames_a_tree_that_already_has_a_name(tmp_path) -> None:
     runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
 
     assert GenerationStore(target_db).get_tree(root_id).name == "my name for it"
+
+
+def test_import_leaves_existing_content_alone_without_update(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, child_id = _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    GenerationStore(source_db).update_text(child_id, " B edited")
+
+    result = runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    assert GenerationStore(target_db).get(child_id).text == " B"
+
+
+def test_import_update_overwrites_changed_content(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, child_id = _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    source = GenerationStore(source_db)
+    source.update_text(child_id, " B edited")
+    source.update_metadata(child_id, {"bookmarked": True})
+
+    result = runner.invoke(
+        app, ["import", str(source_db), "--db", str(target_db), "--update"]
+    )
+
+    assert result.exit_code == 0, result.output
+    updated = GenerationStore(target_db).get(child_id)
+    assert updated.text == " B edited"
+    assert updated.metadata.get("bookmarked") is True
+
+
+def test_import_update_does_not_move_where_the_target_is_reading(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, first_child = _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    source = GenerationStore(source_db)
+    _, other = source.save_continuations(
+        "A",
+        [" C"],
+        model="m",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.9,
+        parent_id=root_id,
+    )
+    source.set_checked_out_child(root_id, other[0].id)
+    source.update_text(first_child, " B edited")
+    target = GenerationStore(target_db)
+    target.set_checked_out_child(root_id, first_child)
+
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db), "--update"])
+
+    target = GenerationStore(target_db)
+    assert target.get(first_child).text == " B edited"
+    assert target.get_checked_out_child_id(root_id) == first_child
+
+
+def test_import_update_dry_run_writes_nothing(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    _, child_id = _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    GenerationStore(source_db).update_text(child_id, " B edited")
+
+    result = runner.invoke(
+        app,
+        ["import", str(source_db), "--db", str(target_db), "--update", "--dry-run"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "update 1 nodes already here" in " ".join(unstyle(result.output).split())
+    assert GenerationStore(target_db).get(child_id).text == " B"
+
+
+def test_import_update_is_a_no_op_when_nothing_changed(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    result = runner.invoke(
+        app, ["import", str(source_db), "--db", str(target_db), "--update"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Nothing to do" in unstyle(result.output)
