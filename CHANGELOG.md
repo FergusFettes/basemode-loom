@@ -8,6 +8,17 @@ under Unreleased.
 
 ### Added
 
+- The default model plan — the plan a tree with no plan of its own starts from
+  — is now stored in the corpus and editable over the API, via
+  `GET`/`PUT /api/settings/default-model-plan`. It previously existed only as a
+  constant in this package plus a per-browser default in the frontend, so two
+  people pointed at one server could not agree on a shared default; now they
+  can, and either can change it. `PUT` with a null plan clears the override
+  back to the built-in. Existing trees keep the plan they already have. Unlike
+  the credential and rating switches this is not gated in production: it lives
+  in the corpus rather than in the machine-wide basemode config, and being
+  shared is the reason it exists.
+
 - `basemode-loom import` adds trees and nodes from another database or from a
   JSON export, skipping everything already present. Node and tree ids are
   uuids, so a tree keeps its identity between machines: an import only ever
@@ -35,6 +46,10 @@ under Unreleased.
   plus per-model flag counts weighed against how much that model was used.
 
 ### Changed
+
+- The built-in default plan is now `zai/glm-5.1`, `openai/gpt-5.4`,
+  `deepinfra/deepseek-ai/deepseek-v4-flash-0731` and
+  `gemini/gemini-3.5-flash-lite`.
 
 - Navigation on a deep tree is roughly twenty times faster. A session state
   snapshot read the node's ancestry by walking parent links one query at a

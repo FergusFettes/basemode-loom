@@ -41,12 +41,15 @@ _DEFAULT_MODEL_PLAN = [
         "pinned_settings": True,
     }
     for model in (
-        "zai/glm-5.2",
-        "deepinfra/deepseek-ai/deepseek-v4-flash-0731",
+        "zai/glm-5.1",
         "openai/gpt-5.4",
-        "anthropic/claude-opus-4-7",
+        "deepinfra/deepseek-ai/deepseek-v4-flash-0731",
+        "gemini/gemini-3.5-flash-lite",
     )
 ]
+
+# Key under which an operator-chosen plan overrides _DEFAULT_MODEL_PLAN.
+DEFAULT_MODEL_PLAN_SETTING = "default_model_plan"
 
 
 def default_db_path() -> Path:
@@ -241,6 +244,9 @@ class GenerationStore:
             Path(path).expanduser() if path is not None else default_db_path()
         )
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        # Read on nearly every tree load, written almost never, so it is worth
+        # not opening a connection per row. Invalidated on write.
+        self._default_model_plan: list[dict[str, Any]] | None = None
         self._init_db()
 
     def connect(self) -> sqlite3.Connection:
@@ -423,6 +429,56 @@ class GenerationStore:
             for text in continuations
         ]
         return parent, children
+
+    def default_model_plan(self) -> list[dict[str, Any]]:
+        """The plan a tree with no plan of its own starts from.
+
+        An operator-chosen plan in `app_settings` wins; otherwise the built-in
+        `_DEFAULT_MODEL_PLAN`. Shared by every client of this corpus, which is
+        the point — a per-browser default cannot be agreed on by two people.
+        """
+        if self._default_model_plan is None:
+            with closing(self.connect()) as conn:
+                row = conn.execute(
+                    "SELECT value_json FROM app_settings WHERE key = ?",
+                    (DEFAULT_MODEL_PLAN_SETTING,),
+                ).fetchone()
+            stored = normalize_model_plan(json.loads(row["value_json"])) if row else []
+            self._default_model_plan = stored or _DEFAULT_MODEL_PLAN
+        return self._default_model_plan
+
+    def set_default_model_plan(
+        self, plan: list[dict[str, Any]] | None
+    ) -> list[dict[str, Any]]:
+        """Store the default plan, or clear it back to the built-in with None.
+
+        Existing trees keep the plan they already have; this only changes what
+        a tree with no plan of its own falls back to.
+        """
+        normalized = normalize_model_plan(plan) if plan else []
+        with closing(self.connect()) as conn, conn:
+            if normalized:
+                conn.execute(
+                    """
+                    INSERT INTO app_settings (key, value_json, updated_at)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value_json = excluded.value_json,
+                        updated_at = excluded.updated_at
+                    """,
+                    (
+                        DEFAULT_MODEL_PLAN_SETTING,
+                        json.dumps(normalized, sort_keys=True),
+                        _now(),
+                    ),
+                )
+            else:
+                conn.execute(
+                    "DELETE FROM app_settings WHERE key = ?",
+                    (DEFAULT_MODEL_PLAN_SETTING,),
+                )
+        self._default_model_plan = None
+        return self.default_model_plan()
 
     def get_tree(self, tree_id: str) -> Tree | None:
         with closing(self.connect()) as conn:
@@ -1768,12 +1824,11 @@ class GenerationStore:
             metadata=json.loads(row["metadata_json"]),
         )
 
-    @staticmethod
-    def _tree(row: sqlite3.Row) -> Tree:
+    def _tree(self, row: sqlite3.Row) -> Tree:
         raw_plan = json.loads(row["model_plan_json"])
         model_plan = normalize_model_plan(raw_plan)
         if not model_plan:
-            model_plan = _DEFAULT_MODEL_PLAN
+            model_plan = self.default_model_plan()
         return Tree(
             id=row["id"],
             current_node_id=row["current_node_id"],

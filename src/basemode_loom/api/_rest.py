@@ -18,6 +18,7 @@ from ..credentials import (
 )
 from ..graph_stats import analyze_subtree
 from ..images import MAX_PROMPT_CHARS, ImageGenerationError, generate_branch_image
+from ..model_plan import validate_model_plan
 from ..model_ratings import get_rating, is_valid_rating, list_ratings, set_rating
 from ..model_resolver import resolve_model_id
 from ..rating import batches_from_store
@@ -565,6 +566,43 @@ class ModelRating(BaseModel):
 class ModelRatingListResponse(BaseModel):
     ratings: dict[str, int]
     writable: bool
+
+
+class DefaultModelPlanBody(BaseModel):
+    # `None` clears the operator override, restoring the built-in plan.
+    model_plan: list[dict[str, Any]] | None = None
+
+
+class DefaultModelPlanResponse(BaseModel):
+    model_plan: list[dict[str, Any]]
+
+
+@router.get("/settings/default-model-plan", response_model=DefaultModelPlanResponse)
+def get_default_model_plan(store: StoreDep) -> DefaultModelPlanResponse:
+    """The plan a tree with no plan of its own starts from."""
+    return DefaultModelPlanResponse(model_plan=store.default_model_plan())
+
+
+@router.put("/settings/default-model-plan", response_model=DefaultModelPlanResponse)
+def put_default_model_plan(
+    body: DefaultModelPlanBody, store: StoreDep
+) -> DefaultModelPlanResponse:
+    """Set the default plan for trees that have never been configured.
+
+    This lives in the corpus rather than in the machine-wide basemode config,
+    so it is not gated behind the production credential/rating switches: it is
+    a property of this deployment's corpus, and being shared between everyone
+    pointed at it is the entire reason it exists. Existing trees are untouched.
+    """
+    if body.model_plan is None:
+        return DefaultModelPlanResponse(model_plan=store.set_default_model_plan(None))
+    parsed, error = validate_model_plan(body.model_plan)
+    if error is not None:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "invalid_model_plan", "message": error},
+        )
+    return DefaultModelPlanResponse(model_plan=store.set_default_model_plan(parsed))
 
 
 @router.get("/models/ratings", response_model=ModelRatingListResponse)

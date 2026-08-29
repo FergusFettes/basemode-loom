@@ -61,6 +61,18 @@ def initialize(
         )
         """
     )
+    # Deployment-wide preferences that belong to the corpus rather than to any
+    # one tree or browser — the default model plan, so far. Kept here so two
+    # people pointed at the same server see the same defaults.
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_settings (
+            key TEXT PRIMARY KEY,
+            value_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
     if had_nodes:
         ensure_column(conn, "nodes", "tree_id", "TEXT")
         ensure_column(conn, "nodes", "kind", "TEXT NOT NULL DEFAULT 'text'")
