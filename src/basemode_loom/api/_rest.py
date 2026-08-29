@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
 from time import monotonic
 from typing import Annotated, Any, Literal
 
@@ -45,6 +46,33 @@ def _get_config(request: Request) -> Config:
 
 
 StoreDep = Annotated[GenerationStore, Depends(_get_store)]
+
+
+def _installed_version(package: str) -> str | None:
+    """The installed version, or None where the package cannot be found."""
+    try:
+        return version(package)
+    except PackageNotFoundError:
+        return None
+
+
+class VersionResponse(BaseModel):
+    basemode: str | None
+    basemode_loom: str | None
+
+
+@router.get("/version", response_model=VersionResponse)
+async def get_version() -> VersionResponse:
+    """Versions of the installed Python packages behind this API.
+
+    A client showing these alongside its own build is answering "are we
+    looking at the same thing?", so an absent package reports null rather
+    than a placeholder that would read as a real version.
+    """
+    return VersionResponse(
+        basemode=_installed_version("basemode"),
+        basemode_loom=_installed_version("basemode-loom"),
+    )
 
 
 @router.get("/config")

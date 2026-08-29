@@ -8,6 +8,11 @@ under Unreleased.
 
 ### Added
 
+- `GET /api/version` reports the installed `basemode` and `basemode-loom`
+  versions, so a client can show them beside its own build. A package that
+  cannot be found reports null rather than a placeholder that would read as a
+  real version.
+
 - The default model plan — the plan a tree with no plan of its own starts from
   — is now stored in the corpus and editable over the API, via
   `GET`/`PUT /api/settings/default-model-plan`. It previously existed only as a
