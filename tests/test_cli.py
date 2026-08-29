@@ -371,3 +371,50 @@ def test_import_rejects_a_file_that_is_neither_export_nor_database(tmp_path) -> 
 
     assert result.exit_code == 1
     assert "neither" in unstyle(result.output)
+
+
+def test_import_carries_a_tree_name_across(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, _ = _seed_tree(source_db, "A", " B")
+    source = GenerationStore(source_db)
+    source.update_tree_settings(root_id, name="Hart Crane", global_n_branches=4)
+    GenerationStore(target_db)
+
+    result = runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    tree = GenerationStore(target_db).get_tree(root_id)
+    assert tree is not None
+    assert tree.name == "Hart Crane"
+    assert tree.global_n_branches == 4
+
+
+def test_import_names_a_tree_left_nameless_by_an_earlier_import(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, _ = _seed_tree(source_db, "A", " B")
+    source = GenerationStore(source_db)
+    target = GenerationStore(target_db)
+    target.import_nodes(source.tree(root_id))
+    assert target.get_tree(root_id).name is None
+    source.update_tree_settings(root_id, name="Punk")
+
+    result = runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    assert GenerationStore(target_db).get_tree(root_id).name == "Punk"
+
+
+def test_import_never_renames_a_tree_that_already_has_a_name(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, _ = _seed_tree(source_db, "A", " B")
+    source = GenerationStore(source_db)
+    source.update_tree_settings(root_id, name="source name")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    GenerationStore(target_db).update_tree_settings(root_id, name="my name for it")
+
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert GenerationStore(target_db).get_tree(root_id).name == "my name for it"

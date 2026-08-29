@@ -878,7 +878,7 @@ def _import_loom_json(store: "GenerationStore", path: Path) -> "Node | None":
     return root
 
 
-def _nodes_from_loom_json(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+def _nodes_from_loom_json(path: Path) -> tuple[list[Node], dict[str, dict]]:
     data = _json.loads(path.read_text())
     raw_nodes = data.get("nodes", [])
     nodes = [
@@ -899,10 +899,12 @@ def _nodes_from_loom_json(path: Path) -> tuple[list[Node], dict[str, str | None]
         )
         for n in raw_nodes
     ]
+    # A JSON export carries no tree row; the root node's own metadata is what
+    # `import_nodes` reads its settings back out of.
     return nodes, {}
 
 
-def _nodes_from_sqlite(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+def _nodes_from_sqlite(path: Path) -> tuple[list[Node], dict[str, dict]]:
     """Read a source database without opening (or migrating) it as a store."""
     import sqlite3
 
@@ -910,9 +912,16 @@ def _nodes_from_sqlite(path: Path) -> tuple[list[Node], dict[str, str | None]]:
     with contextlib.closing(sqlite3.connect(uri, uri=True)) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute("SELECT * FROM nodes").fetchall()
-        names = {
-            str(row["id"]): row["name"]
-            for row in conn.execute("SELECT id, name FROM trees").fetchall()
+        trees = {
+            str(row["id"]): {
+                "name": row["name"],
+                "show_model_names": bool(row["show_model_names"]),
+                "rewind_split_tokens": row["rewind_split_tokens"],
+                "global_max_tokens": row["global_max_tokens"],
+                "global_n_branches": row["global_n_branches"],
+                "model_plan": _json.loads(row["model_plan_json"]),
+            }
+            for row in conn.execute("SELECT * FROM trees").fetchall()
         }
     nodes = [
         Node(
@@ -932,10 +941,10 @@ def _nodes_from_sqlite(path: Path) -> tuple[list[Node], dict[str, str | None]]:
         )
         for row in rows
     ]
-    return nodes, names
+    return nodes, trees
 
 
-def _read_import_source(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+def _read_import_source(path: Path) -> tuple[list[Node], dict[str, dict]]:
     if path.suffix.lower() == ".json":
         return _nodes_from_loom_json(path)
     with path.open("rb") as handle:
@@ -989,7 +998,7 @@ def loom_import(
         console.print(f"[red]No such file: {source}[/red]")
         raise typer.Exit(1)
     try:
-        nodes, source_names = _read_import_source(source)
+        nodes, source_trees = _read_import_source(source)
     except Exception as exc:
         console.print(f"[red]Could not read {source}: {exc}[/red]")
         raise typer.Exit(1) from None
@@ -1003,13 +1012,21 @@ def loom_import(
     store = GenerationStore(db)
     present = store.existing_node_ids([n.id for n in nodes])
     incoming = [n for n in nodes if n.id not in present]
+    known_trees = set(store.tree_index())
+    # Naming considers every tree in the source, not just the ones with new
+    # nodes: a tree imported before names were carried across has nothing new
+    # to add and still wants its name.
+    trees_in_scope = {n.tree_id for n in nodes}
     if not incoming:
+        named = _carry_tree_names(
+            store, trees_in_scope, known_trees, source_trees, dry_run=dry_run
+        )
         console.print(
-            f"[dim]Nothing new: all {len(nodes)} nodes are already here.[/dim]"
+            f"[dim]No new nodes: all {len(nodes)} are already here.[/dim]"
+            + (f" [green]Named {named} trees.[/green]" if named else "")
         )
         return
 
-    known_trees = set(store.tree_index())
     if not keep_checked_out:
         incoming = [
             dataclasses.replace(n, checked_out=False) if n.tree_id in known_trees else n
@@ -1026,7 +1043,7 @@ def loom_import(
     for tree_id, count in sorted(by_tree.items(), key=lambda kv: -kv[1]):
         table.add_row(
             tree_id[:8],
-            source_names.get(tree_id) or "[dim]—[/dim]",
+            (source_trees.get(tree_id) or {}).get("name") or "[dim]—[/dim]",
             f"{count} new" if tree_id in known_trees else f"{count} (new tree)",
         )
     console.print(table)
@@ -1037,11 +1054,57 @@ def loom_import(
         f"{len(nodes) - len(incoming)} already present"
     )
     if dry_run:
-        console.print(f"[yellow]Would import {summary}.[/yellow]")
+        named = _carry_tree_names(
+            store, trees_in_scope, known_trees, source_trees, dry_run=True
+        )
+        console.print(f"[yellow]Would import {summary}[/yellow]", end="")
+        console.print(f"[yellow], naming {named} trees.[/yellow]" if named else ".")
         return
 
     inserted = store.import_nodes(incoming)
+    named = _carry_tree_names(store, trees_in_scope, known_trees, source_trees)
     console.print(f"[green]Imported {inserted} nodes.[/green] {summary}.")
+    if named:
+        console.print(f"[dim]Named {named} trees from the source.[/dim]")
+
+
+def _carry_tree_names(
+    store: GenerationStore,
+    tree_ids: set[str],
+    known_trees: set[str],
+    source_trees: dict[str, dict],
+    *,
+    dry_run: bool = False,
+) -> int:
+    """Give an imported tree the name it had at the source.
+
+    A tree's name and generation settings live on its `trees` row, not on its
+    nodes, so importing nodes alone leaves a new tree nameless. Only a tree
+    with no name here is touched, so this never renames a tree that has one
+    and can be re-run over an import that predates it.
+    """
+    named = 0
+    for tree_id in sorted(tree_ids):
+        settings = source_trees.get(tree_id)
+        if not settings or not settings.get("name"):
+            continue
+        tree = store.get_tree(tree_id)
+        if tree is None or tree.name:
+            continue
+        fields: dict[str, object] = {"name": settings["name"]}
+        if tree_id not in known_trees:
+            # New here, so its generation settings are this import's to set.
+            fields.update(
+                show_model_names=settings["show_model_names"],
+                rewind_split_tokens=settings["rewind_split_tokens"],
+                global_max_tokens=settings["global_max_tokens"],
+                global_n_branches=settings["global_n_branches"],
+                model_plan=settings["model_plan"],
+            )
+        if not dry_run:
+            store.update_tree_settings(tree_id, **fields)  # type: ignore[arg-type]
+        named += 1
+    return named
 
 
 @app.command("export")

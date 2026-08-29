@@ -14,8 +14,13 @@ under Unreleased.
   adds, never rewrites, and re-running one is a no-op. A node joining a tree
   that already exists locally arrives with its checked-out flag cleared, so an
   import cannot move where this database was last reading; nodes in a tree that
-  is new here keep theirs. `--dry-run` reports the plan per tree without
-  writing, and `--tree` limits it to named trees.
+  is new here keep theirs. An imported tree also takes the name and generation
+  settings it had at the source — those live on the tree row rather than on any
+  node, so importing nodes alone would leave a new tree nameless — but only
+  where the tree has no name here already, so an import never renames a tree
+  and can be re-run to name one an earlier import left bare. `--dry-run`
+  reports the plan per tree without writing, and `--tree` limits it to named
+  trees.
 
 - A generated node records the opening of its stream under `boundary` when
   basemode's healing rewrote it — `raw` as the provider sent it, `streamed`
