@@ -42,7 +42,7 @@ _DEFAULT_MODEL_PLAN = [
     }
     for model in (
         "zai/glm-5.2",
-        "deepseek/deepseek-v4-flash-0731",
+        "deepinfra/deepseek-ai/deepseek-v4-flash-0731",
         "openai/gpt-5.4",
         "anthropic/claude-opus-4-7",
     )
