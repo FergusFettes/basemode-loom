@@ -497,3 +497,33 @@ def test_lineage_rejects_an_unknown_node(tmp_path) -> None:
 
     with pytest.raises(KeyError):
         store.lineage("nosuchnode")
+
+
+def test_import_nodes_orders_a_context_ahead_of_the_node_using_it(tmp_path) -> None:
+    """`context_id` is a foreign key, so a context must land before its user."""
+    source = GenerationStore(tmp_path / "source.sqlite")
+    root, children = source.save_continuations(
+        "The ship rounded",
+        [" the headland"],
+        model="m",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.9,
+    )
+    context = source.create_context(root.tree_id, "You are a sea captain.")
+    source.set_node_context(children[0].id, context.id)
+
+    target = GenerationStore(tmp_path / "target.sqlite")
+    tree_nodes = source.tree(root.id)
+    # Hand them over with the node that points at the context ahead of the
+    # context itself, so the import has to sort them rather than trust the
+    # order it was given.
+    user = next(node for node in tree_nodes if node.context_id)
+    rest = [node for node in tree_nodes if node.id != user.id]
+    inserted = target.import_nodes([user, *rest])
+
+    assert inserted == len(tree_nodes)
+    imported = target.get(children[0].id)
+    assert imported is not None
+    assert imported.context_id == context.id
+    assert target.get(context.id) is not None

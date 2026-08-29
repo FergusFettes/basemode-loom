@@ -8,6 +8,15 @@ under Unreleased.
 
 ### Added
 
+- `basemode-loom import` adds trees and nodes from another database or from a
+  JSON export, skipping everything already present. Node and tree ids are
+  uuids, so a tree keeps its identity between machines: an import only ever
+  adds, never rewrites, and re-running one is a no-op. A node joining a tree
+  that already exists locally arrives with its checked-out flag cleared, so an
+  import cannot move where this database was last reading; nodes in a tree that
+  is new here keep theirs. `--dry-run` reports the plan per tree without
+  writing, and `--tree` limits it to named trees.
+
 - A generated node records the opening of its stream under `boundary` when
   basemode's healing rewrote it — `raw` as the provider sent it, `streamed`
   as the stream repair passed it on — so a botched seam can be attributed to
@@ -63,6 +72,11 @@ under Unreleased.
   effect.
 
 ### Fixed
+
+- Importing a tree that uses a context no longer fails on a foreign key.
+  `import_nodes` ordered parents before children but ignored `context_id`,
+  which is a foreign key too, so a node could be inserted ahead of the context
+  it points at.
 
 - Editing a root node's text no longer starts a whole new tree containing only
   the current path, stranding every other branch on the old tree. A root has no

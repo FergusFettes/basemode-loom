@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import dataclasses
 import ipaddress
 import json as _json
@@ -875,6 +876,172 @@ def _import_loom_json(store: "GenerationStore", path: Path) -> "Node | None":
     if root:
         store.set_active_node(root.id)
     return root
+
+
+def _nodes_from_loom_json(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+    data = _json.loads(path.read_text())
+    raw_nodes = data.get("nodes", [])
+    nodes = [
+        Node(
+            id=n["id"],
+            parent_id=n.get("parent_id"),
+            text=n["text"],
+            model=n.get("model"),
+            strategy=n.get("strategy"),
+            max_tokens=n.get("max_tokens"),
+            temperature=n.get("temperature"),
+            created_at=n["created_at"],
+            metadata=n.get("metadata", {}),
+            tree_id=n.get("tree_id") or n.get("root_id") or n["id"],
+            kind=n.get("kind", "text"),
+            context_id=n.get("context_id"),
+            checked_out=bool(n.get("checked_out", False)),
+        )
+        for n in raw_nodes
+    ]
+    return nodes, {}
+
+
+def _nodes_from_sqlite(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+    """Read a source database without opening (or migrating) it as a store."""
+    import sqlite3
+
+    uri = f"file:{path}?mode=ro"
+    with contextlib.closing(sqlite3.connect(uri, uri=True)) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM nodes").fetchall()
+        names = {
+            str(row["id"]): row["name"]
+            for row in conn.execute("SELECT id, name FROM trees").fetchall()
+        }
+    nodes = [
+        Node(
+            id=row["id"],
+            parent_id=row["parent_id"],
+            text=row["text"],
+            model=row["model"],
+            strategy=row["strategy"],
+            max_tokens=row["max_tokens"],
+            temperature=row["temperature"],
+            created_at=row["created_at"],
+            metadata=_json.loads(row["metadata_json"]),
+            tree_id=row["tree_id"] or row["id"],
+            kind=row["kind"],
+            context_id=row["context_id"],
+            checked_out=bool(row["checked_out"]),
+        )
+        for row in rows
+    ]
+    return nodes, names
+
+
+def _read_import_source(path: Path) -> tuple[list[Node], dict[str, str | None]]:
+    if path.suffix.lower() == ".json":
+        return _nodes_from_loom_json(path)
+    with path.open("rb") as handle:
+        if handle.read(16).startswith(b"SQLite format 3"):
+            return _nodes_from_sqlite(path)
+    raise ValueError(f"{path} is neither a loom JSON export nor a SQLite database")
+
+
+@app.command("import")
+def loom_import(
+    source: Annotated[
+        Path,
+        typer.Argument(
+            help="A loom JSON export, or another SQLite generation database"
+        ),
+    ],
+    db: Annotated[
+        Path | None,
+        typer.Option("--db", help="SQLite generation database to import into"),
+    ] = None,
+    tree: Annotated[
+        list[str] | None,
+        typer.Option("--tree", help="Only import these tree ids (repeatable)"),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option(
+            "--dry-run", help="Report what would be imported, and write nothing"
+        ),
+    ] = False,
+    keep_checked_out: Annotated[
+        bool,
+        typer.Option(
+            "--keep-checked-out",
+            help="Keep the source's checked-out flags even when adding to a tree that already exists here",
+        ),
+    ] = False,
+) -> None:
+    """Add trees and nodes from another database or export.
+
+    Nodes already present are left exactly as they are: this only ever adds.
+    Ids are uuids, so a tree carries its identity between machines and an
+    import can be repeated without duplicating anything.
+
+    A node joining a tree that already exists here arrives with its
+    checked-out flag cleared, so an import cannot move where this database
+    was last reading. Nodes belonging to a tree that is new here keep theirs,
+    which is what puts a freshly imported tree on its own checked-out path.
+    """
+    if not source.exists():
+        console.print(f"[red]No such file: {source}[/red]")
+        raise typer.Exit(1)
+    try:
+        nodes, source_names = _read_import_source(source)
+    except Exception as exc:
+        console.print(f"[red]Could not read {source}: {exc}[/red]")
+        raise typer.Exit(1) from None
+    if tree:
+        wanted = set(tree)
+        nodes = [n for n in nodes if n.tree_id in wanted]
+    if not nodes:
+        console.print("[yellow]Nothing to import.[/yellow]")
+        return
+
+    store = GenerationStore(db)
+    present = store.existing_node_ids([n.id for n in nodes])
+    incoming = [n for n in nodes if n.id not in present]
+    if not incoming:
+        console.print(
+            f"[dim]Nothing new: all {len(nodes)} nodes are already here.[/dim]"
+        )
+        return
+
+    known_trees = set(store.tree_index())
+    if not keep_checked_out:
+        incoming = [
+            dataclasses.replace(n, checked_out=False) if n.tree_id in known_trees else n
+            for n in incoming
+        ]
+
+    table = Table(box=None, pad_edge=False)
+    table.add_column("Tree")
+    table.add_column("Name")
+    table.add_column("Nodes", justify="right")
+    by_tree: dict[str, int] = {}
+    for node in incoming:
+        by_tree[node.tree_id] = by_tree.get(node.tree_id, 0) + 1
+    for tree_id, count in sorted(by_tree.items(), key=lambda kv: -kv[1]):
+        table.add_row(
+            tree_id[:8],
+            source_names.get(tree_id) or "[dim]—[/dim]",
+            f"{count} new" if tree_id in known_trees else f"{count} (new tree)",
+        )
+    console.print(table)
+
+    new_trees = sum(1 for tree_id in by_tree if tree_id not in known_trees)
+    summary = (
+        f"{len(incoming)} nodes across {len(by_tree)} trees ({new_trees} new), "
+        f"{len(nodes) - len(incoming)} already present"
+    )
+    if dry_run:
+        console.print(f"[yellow]Would import {summary}.[/yellow]")
+        return
+
+    inserted = store.import_nodes(incoming)
+    console.print(f"[green]Imported {inserted} nodes.[/green] {summary}.")
 
 
 @app.command("export")

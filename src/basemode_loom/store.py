@@ -750,18 +750,41 @@ class GenerationStore:
             ).fetchone()
         return self._node(row) if row else None
 
+    def existing_node_ids(self, node_ids: list[str]) -> set[str]:
+        """Which of these ids the store already holds."""
+        if not node_ids:
+            return set()
+        found: set[str] = set()
+        unique = list(dict.fromkeys(node_ids))
+        with closing(self.connect()) as conn:
+            # Chunked to stay under SQLite's bound-parameter limit.
+            for start in range(0, len(unique), 500):
+                chunk = unique[start : start + 500]
+                placeholders = ",".join("?" * len(chunk))
+                rows = conn.execute(
+                    f"SELECT id FROM nodes WHERE id IN ({placeholders})", chunk
+                ).fetchall()
+                found.update(str(row["id"]) for row in rows)
+        return found
+
     def import_nodes(self, nodes: list[Node]) -> int:
         """Insert nodes in topological order, skipping existing ids. Returns count inserted."""
-        # Topological sort: parents before children
+        # Topological sort: parents before children, and a context node before
+        # whatever points at it — `context_id` is a foreign key too, so a node
+        # that arrives ahead of its context is rejected outright.
         by_id = {n.id: n for n in nodes}
         ordered: list[Node] = []
         seen: set[str] = set()
+        visiting: set[str] = set()
 
         def visit(node: Node) -> None:
-            if node.id in seen:
+            if node.id in seen or node.id in visiting:
                 return
-            if node.parent_id and node.parent_id in by_id:
-                visit(by_id[node.parent_id])
+            visiting.add(node.id)
+            for dependency in (node.parent_id, node.context_id):
+                if dependency and dependency in by_id:
+                    visit(by_id[dependency])
+            visiting.discard(node.id)
             seen.add(node.id)
             ordered.append(node)
 

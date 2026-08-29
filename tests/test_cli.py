@@ -229,3 +229,145 @@ def test_loom_stats_can_analyze_json_file(tmp_path) -> None:
     assert '"source_format"' not in result.output
     assert '"model": "model-a"' in result.output
     assert '"bookmarked": true' in result.output
+
+
+def _seed_tree(db, root_text: str, branch_text: str) -> tuple[str, str]:
+    store = GenerationStore(db)
+    parent, children = store.save_continuations(
+        root_text,
+        [branch_text],
+        model="m",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.9,
+    )
+    return parent.id, children[0].id
+
+
+def test_import_adds_a_missing_tree_from_another_database(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, child_id = _seed_tree(source_db, "The ship rounded", " the headland")
+    GenerationStore(target_db)
+
+    result = runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    target = GenerationStore(target_db)
+    assert target.get(root_id) is not None
+    assert target.full_text(child_id) == "The ship rounded the headland"
+    assert set(target.tree_index()) == {root_id}
+
+
+def test_import_is_repeatable_and_adds_only_what_is_missing(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, child_id = _seed_tree(source_db, "A", " B")
+    GenerationStore(target_db)
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    source = GenerationStore(source_db)
+    _, extra = source.save_continuations(
+        " C",
+        [" D"],
+        model="m",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.9,
+        parent_id=child_id,
+    )
+    result = runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    target = GenerationStore(target_db)
+    assert len(target.tree(root_id)) == len(source.tree(root_id))
+    assert target.get(extra[0].id) is not None
+
+
+def test_import_leaves_an_existing_tree_reading_where_it_was(tmp_path) -> None:
+    """An import must not move the target's checked-out path."""
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, first_child = _seed_tree(source_db, "A", " B")
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+    GenerationStore(target_db).set_checked_out_child(root_id, first_child)
+
+    source = GenerationStore(source_db)
+    _, added = source.save_continuations(
+        "A",
+        [" C"],
+        model="m",
+        strategy="system",
+        max_tokens=5,
+        temperature=0.9,
+        parent_id=root_id,
+    )
+    source.set_checked_out_child(root_id, added[0].id)
+
+    runner.invoke(app, ["import", str(source_db), "--db", str(target_db)])
+
+    target = GenerationStore(target_db)
+    assert target.get_checked_out_child_id(root_id) == first_child
+    assert target.get(added[0].id) is not None
+
+
+def test_import_dry_run_writes_nothing(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, _ = _seed_tree(source_db, "A", " B")
+    GenerationStore(target_db)
+
+    result = runner.invoke(
+        app, ["import", str(source_db), "--db", str(target_db), "--dry-run"]
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "Would import" in unstyle(result.output)
+    assert GenerationStore(target_db).get(root_id) is None
+
+
+def test_import_can_be_limited_to_one_tree(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    wanted, _ = _seed_tree(source_db, "keep me", " yes")
+    skipped, _ = _seed_tree(source_db, "leave me", " no")
+    GenerationStore(target_db)
+
+    result = runner.invoke(
+        app, ["import", str(source_db), "--db", str(target_db), "--tree", wanted]
+    )
+
+    assert result.exit_code == 0, result.output
+    target = GenerationStore(target_db)
+    assert target.get(wanted) is not None
+    assert target.get(skipped) is None
+
+
+def test_import_round_trips_a_json_export(tmp_path) -> None:
+    source_db = tmp_path / "source.sqlite"
+    target_db = tmp_path / "target.sqlite"
+    root_id, child_id = _seed_tree(source_db, "The ship rounded", " the headland")
+    export = tmp_path / "tree.json"
+    runner.invoke(
+        app, ["export", "--db", str(source_db), "--node", root_id, "--to", str(export)]
+    )
+    GenerationStore(target_db)
+
+    result = runner.invoke(app, ["import", str(export), "--db", str(target_db)])
+
+    assert result.exit_code == 0, result.output
+    assert GenerationStore(target_db).full_text(child_id) == (
+        "The ship rounded the headland"
+    )
+
+
+def test_import_rejects_a_file_that_is_neither_export_nor_database(tmp_path) -> None:
+    junk = tmp_path / "notes.txt"
+    junk.write_text("just some prose")
+
+    result = runner.invoke(
+        app, ["import", str(junk), "--db", str(tmp_path / "t.sqlite")]
+    )
+
+    assert result.exit_code == 1
+    assert "neither" in unstyle(result.output)
