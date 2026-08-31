@@ -80,9 +80,11 @@ isolated in the optional `embed` and `embed-mlx` installation extras.
 By default, data is stored in a local SQLite DB under your user data directory.
 Use `--db /path/to/file.sqlite` to choose a custom location.
 
-Publish privacy-safe aggregate model statistics to basemode's shared evidence
-store with `basemode-loom publish-evidence`. Use `--dry-run` to inspect the
-payload; raw tree text and identifiers are never published.
+Basemode records content-free provider call outcomes locally. Loom identifies
+those calls using only its application name and installed version; prompts,
+generated text, tree and node identifiers, flags, and edits are not included.
+Any public contribution is explicitly controlled and previewed through
+`basemode contribute`, not through a Loom corpus exporter.
 
 ## Docs
 
