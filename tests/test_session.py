@@ -1351,7 +1351,9 @@ async def test_store_failure_after_content_does_not_write_health(store, monkeypa
 
     health_writes = []
     monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
-    monkeypatch.setattr(health, "record_outcome", lambda *a, **kw: health_writes.append(kw))
+    monkeypatch.setattr(
+        health, "record_outcome", lambda *a, **kw: health_writes.append(kw)
+    )
     _, children = store.save_continuations(
         "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
     )

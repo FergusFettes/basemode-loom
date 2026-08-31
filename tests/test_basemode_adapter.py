@@ -26,7 +26,9 @@ def test_loom_observation_contains_only_allow_listed_provenance(monkeypatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_continue_text_forwards_observation_to_typed_basemode(monkeypatch) -> None:
+async def test_continue_text_forwards_observation_to_typed_basemode(
+    monkeypatch,
+) -> None:
     seen = {}
 
     async def fake_continue(*args, **kwargs):
@@ -47,7 +49,9 @@ async def test_continue_text_forwards_observation_to_typed_basemode(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_legacy_basemode_does_not_receive_unknown_observation(monkeypatch) -> None:
+async def test_legacy_basemode_does_not_receive_unknown_observation(
+    monkeypatch,
+) -> None:
     seen = {}
 
     async def fake_continue(*args, **kwargs):
