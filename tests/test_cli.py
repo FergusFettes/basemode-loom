@@ -1,10 +1,32 @@
+import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
-from basemode_loom.cli import app
+from basemode_loom.cli import _stream_branches, _stream_one, app
 from basemode_loom.store import GenerationStore
 
 runner = CliRunner()
+
+
+@pytest.mark.asyncio
+async def test_cli_streams_supply_loom_observation(monkeypatch) -> None:
+    observations = []
+
+    async def fake_continue(*args, **kwargs):
+        observations.append(kwargs["observation"])
+        yield " one"
+
+    async def fake_branch(*args, **kwargs):
+        observations.append(kwargs["observation"])
+        yield 0, " branch"
+
+    monkeypatch.setattr("basemode_loom.basemode_adapter.continue_text", fake_continue)
+    monkeypatch.setattr("basemode_loom.basemode_adapter.branch_text", fake_branch)
+
+    await _stream_one("prefix", "model", 10, 0.9, None)
+    await _stream_branches("prefix", "model", 1, 10, 0.9, None)
+
+    assert [item.source for item in observations] == ["loom", "loom"]
 
 
 def test_top_level_help_includes_loom() -> None:

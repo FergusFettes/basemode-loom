@@ -17,13 +17,12 @@ from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Any, Literal
 
-from basemode.continue_ import continue_text
 from basemode.detect import detect_strategy
 from basemode.healing import needs_leading_space, normalize_completion_segment
-from basemode.health import record_outcome
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage, usage_from_events
 
+from .basemode_adapter import continue_text, loom_observation
 from .diagnostics import (
     ProviderDiagnostic,
     empty_response_diagnostic,
@@ -639,13 +638,7 @@ class LoomSession:
                 )
                 diagnostic = empty_response_diagnostic()
                 branch_errors[slot_idx] = diagnostic
-                record_outcome(
-                    resolve_model_id(plan.model),
-                    ok=False,
-                    category=diagnostic.category,
-                )
                 return None
-            record_outcome(resolve_model_id(plan_entry[2].model), ok=True)
             node = self._save_completions(
                 prefix,
                 [plan_entry],
@@ -687,10 +680,7 @@ class LoomSession:
                     context=context,
                     rewind=bool(self.rewind_split_tokens),
                     strict_max_tokens=True,
-                    # A branch is only a success once its text survives
-                    # normalization, which basemode cannot see, so the outcome
-                    # is recorded here instead of once at each layer.
-                    record_health=False,
+                    observation=loom_observation(),
                     on_raw_head=capture_head,
                     on_usage=capture_usage,
                 ):
@@ -701,14 +691,6 @@ class LoomSession:
                     await queue.put(("token", slot_idx, model_idx, branch_idx, tok))
             except Exception as exc:
                 diagnostic = provider_diagnostic(exc)
-                record_outcome(
-                    resolve_model_id(plan.model),
-                    ok=False,
-                    category=diagnostic.category,
-                    status=diagnostic.status,
-                    error_code=diagnostic.error_code,
-                    error_param=diagnostic.error_param,
-                )
                 log.error(
                     "generation branch failed "
                     f"model={plan.model} model_idx={model_idx} "

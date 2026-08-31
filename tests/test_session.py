@@ -2,7 +2,6 @@ import asyncio
 
 import pytest
 
-from basemode_loom.model_resolver import resolve_model_id
 from basemode_loom.session import (
     BranchComplete,
     GenerationCancelled,
@@ -678,7 +677,11 @@ def test_save_restores_on_reload(store, tmp_path):
 
 @pytest.mark.asyncio
 async def test_generate_yields_token_events(store, monkeypatch):
+    observations = []
+
     async def fake_continue(prefix, model, **kwargs):
+        observations.append(kwargs["observation"])
+        assert "record_health" not in kwargs
         for tok in ["hello", " world"]:
             yield tok
 
@@ -700,6 +703,9 @@ async def test_generate_yields_token_events(store, monkeypatch):
     assert len(token_events) == 2
     assert token_events[0].token == "hello"
     assert len(complete_events) == 1
+    assert len(observations) == 1
+    assert observations[0].source == "loom"
+    assert observations[0].source_version
 
 
 @pytest.mark.asyncio
@@ -1314,67 +1320,8 @@ async def test_generate_saves_each_branch_as_it_finishes(store, monkeypatch):
     assert len(store.children(ch[0].id)) == 2
 
 
-# --- health recording ---
-
-
 @pytest.mark.asyncio
-async def test_generate_records_a_successful_branch_against_the_model(
-    store, monkeypatch
-):
-    from basemode import health
-
-    async def fake_continue(prefix, model, **kwargs):
-        yield " onward"
-
-    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
-    _, ch = store.save_continuations(
-        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
-    )
-    session = LoomSession(store, ch[0].id)
-    session.n_branches = 2
-
-    async for _event in session.generate():
-        pass
-
-    observed = health.model_health(resolve_model_id(session.model))
-    assert observed["attempts"] == 2
-    assert observed["successes"] == 2
-
-
-@pytest.mark.asyncio
-async def test_generate_records_a_provider_failure_with_its_category(
-    store, monkeypatch
-):
-    from basemode import health
-
-    class RateLimited(RuntimeError):
-        status_code = 429
-
-    async def failing_continue(prefix, model, **kwargs):
-        raise RateLimited("slow down")
-        yield  # pragma: no cover - generator marker
-
-    monkeypatch.setattr("basemode_loom.session.continue_text", failing_continue)
-    _, ch = store.save_continuations(
-        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
-    )
-    session = LoomSession(store, ch[0].id)
-    session.n_branches = 1
-
-    async for _event in session.generate():
-        pass
-
-    observed = health.model_health(resolve_model_id(session.model))
-    assert observed["failures"] == 1
-    assert observed["categories"] == {"rate_limit": 1}
-    assert observed["last_status"] == 429
-
-
-@pytest.mark.asyncio
-async def test_a_branch_that_normalizes_away_is_recorded_as_empty(store, monkeypatch):
-    """basemode saw tokens arrive, so only the session can call this a failure."""
-    from basemode import health
-
+async def test_a_branch_that_normalizes_away_is_a_loom_error(store, monkeypatch):
     async def whitespace_continue(prefix, model, **kwargs):
         yield "   "
 
@@ -1385,13 +1332,38 @@ async def test_a_branch_that_normalizes_away_is_recorded_as_empty(store, monkeyp
     session = LoomSession(store, ch[0].id)
     session.n_branches = 1
 
-    async for _event in session.generate():
-        pass
+    events = [event async for event in session.generate()]
 
-    observed = health.model_health(resolve_model_id(session.model))
-    assert observed["attempts"] == 1
-    assert observed["failures"] == 1
-    assert observed["categories"] == {"empty_response": 1}
+    error = next(event for event in events if isinstance(event, GenerationError))
+    assert error.category == "empty_response"
+    assert store.children(ch[0].id) == []
+
+
+@pytest.mark.asyncio
+async def test_store_failure_after_content_does_not_write_health(store, monkeypatch):
+    from basemode import health
+
+    async def fake_continue(prefix, model, **kwargs):
+        yield " generated"
+
+    def fail_save(*args, **kwargs):
+        raise RuntimeError("database unavailable")
+
+    health_writes = []
+    monkeypatch.setattr("basemode_loom.session.continue_text", fake_continue)
+    monkeypatch.setattr(health, "record_outcome", lambda *a, **kw: health_writes.append(kw))
+    _, children = store.save_continuations(
+        "Prompt", ["start"], model="m", strategy="s", max_tokens=10, temperature=0.9
+    )
+    session = LoomSession(store, children[0].id)
+    session.n_branches = 1
+    monkeypatch.setattr(session, "_save_completions", fail_save)
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        async for _event in session.generate():
+            pass
+
+    assert health_writes == []
 
 
 # --- generation never moves the reader ---

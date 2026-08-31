@@ -5,13 +5,11 @@ import json
 import math
 from typing import Any
 
-from basemode.health import record_outcome
 from fastapi import WebSocket, WebSocketDisconnect
 
 from ..config import ServerConfig
 from ..logging_utils import get_logger
 from ..model_plan import MAX_MAX_TOKENS, MIN_MAX_TOKENS, validate_model_plan
-from ..model_resolver import resolve_model_id
 from ..session import (
     BranchComplete,
     GenerationCancelled,
@@ -308,7 +306,6 @@ async def session_ws(
         except TimeoutError:
             session.cancel()
             for (model_idx, branch_idx), model in pending_branches.items():
-                record_outcome(resolve_model_id(model), ok=False, category="timeout")
                 await websocket.send_json(
                     {
                         "type": "generation_error",

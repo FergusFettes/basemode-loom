@@ -79,7 +79,7 @@ async def _stream_one(
     strategy: str | None,
     rewind: bool = False,
 ) -> str:
-    from basemode.continue_ import continue_text
+    from .basemode_adapter import continue_text, loom_observation
 
     console.print(f"[dim]{prefix}[/dim]", end="")
     chunks: list[str] = []
@@ -91,6 +91,7 @@ async def _stream_one(
         strategy=strategy,
         rewind=rewind,
         strict_max_tokens=True,
+        observation=loom_observation(),
     ):
         chunks.append(token)
         console.print(token, end="")
@@ -107,7 +108,7 @@ async def _stream_branches(
     strategy: str | None,
     rewind: bool = False,
 ) -> list[str]:
-    from basemode.continue_ import branch_text
+    from .basemode_adapter import branch_text, loom_observation
 
     buffers: list[list[str]] = [[] for _ in range(n)]
 
@@ -125,6 +126,7 @@ async def _stream_branches(
             strategy=strategy,
             rewind=rewind,
             strict_max_tokens=True,
+            observation=loom_observation(),
         ):
             buffers[idx].append(token)
             live.update(_branches_panel(prefix, buffers))
@@ -710,60 +712,6 @@ def _print_loom_stats(stats, *, as_json: bool) -> None:
         for model, count in stats.path.models.items():
             path.add_row(model, str(count))
         console.print(path)
-
-
-@app.command("publish-evidence")
-def loom_publish_evidence(
-    db: Annotated[
-        Path | None, typer.Option("--db", help="SQLite generation database path")
-    ] = None,
-    since: Annotated[
-        str | None,
-        typer.Option("--since", help="Include nodes at/after this ISO-8601 timestamp"),
-    ] = None,
-    until: Annotated[
-        str | None,
-        typer.Option("--until", help="Include nodes before this ISO-8601 timestamp"),
-    ] = None,
-    source_instance: Annotated[
-        str | None,
-        typer.Option(
-            "--source-instance",
-            help="Stable corpus label (the default is a private local hash)",
-        ),
-    ] = None,
-    dry_run: Annotated[
-        bool,
-        typer.Option("--dry-run", help="Print aggregates without writing evidence"),
-    ] = False,
-) -> None:
-    """Backfill private Loom usage as aggregate model evidence.
-
-    No node IDs, tree IDs, prompts, or generated text leave the Loom database.
-    """
-    from .model_evidence import (
-        collect_corpus_observations,
-        observations_json,
-        publish_corpus_statistics,
-    )
-
-    store = GenerationStore(db)
-    if dry_run:
-        observations = collect_corpus_observations(
-            store, window_start=since, window_end=until
-        )
-        console.print(observations_json(observations))
-        return
-    try:
-        count = publish_corpus_statistics(
-            store,
-            window_start=since,
-            window_end=until,
-            source_instance=source_instance,
-        )
-    except RuntimeError as exc:
-        raise typer.BadParameter(str(exc)) from exc
-    console.print(f"[dim]Published {count:,} aggregate evidence row(s).[/dim]")
 
 
 @app.command("view")
