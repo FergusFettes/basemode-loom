@@ -79,7 +79,9 @@ async def _stream_one(
     strategy: str | None,
     rewind: bool = False,
 ) -> str:
-    from .basemode_adapter import continue_text, loom_observation
+    from basemode.continue_ import continue_text
+
+    from .basemode_adapter import loom_observation
 
     console.print(f"[dim]{prefix}[/dim]", end="")
     chunks: list[str] = []
@@ -108,7 +110,9 @@ async def _stream_branches(
     strategy: str | None,
     rewind: bool = False,
 ) -> list[str]:
-    from .basemode_adapter import branch_text, loom_observation
+    from basemode.continue_ import branch_text
+
+    from .basemode_adapter import loom_observation
 
     buffers: list[list[str]] = [[] for _ in range(n)]
 

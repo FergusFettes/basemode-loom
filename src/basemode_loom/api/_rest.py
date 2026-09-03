@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 from time import monotonic
 from typing import Annotated, Any, Literal
 
-from basemode.health import list_model_health, model_health
+from basemode.observation_queries import endpoint_health, list_endpoint_health
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, StrictInt
 
@@ -738,18 +738,17 @@ def model_health_report(
 ) -> dict:
     """What models actually did on this machine, recorded from real usage.
 
-    Attempts, failures, failure rate, and the categories they failed with —
-    the counterpart to a rating, which is only an opinion. All-time totals
-    are kept indefinitely; the category breakdown comes from an event log
-    pruned after 30 days, so a `days` window never reaches further back.
+    Logical outcomes, physical attempts, failure classes, and derived
+    operational status — the counterpart to a rating, which is only an
+    opinion. Basemode owns this content-free projection over its call ledger.
     """
     if model is not None:
         resolved = resolve_model_id(model.strip()) if model.strip() else ""
         if not resolved:
             raise HTTPException(status_code=422, detail={"code": "empty_model"})
-        observed = model_health(resolved, days=days)
+        observed = endpoint_health(resolved, days=days)
         return {"health": {resolved: observed} if observed else {}}
-    return {"health": list_model_health(days=days)}
+    return {"health": list_endpoint_health(days=days)}
 
 
 @router.get("/models/speed")

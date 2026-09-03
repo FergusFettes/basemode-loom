@@ -17,12 +17,13 @@ from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Any, Literal
 
+from basemode.continue_ import continue_text
 from basemode.detect import detect_strategy
 from basemode.healing import needs_leading_space, normalize_completion_segment
 from basemode.keys import get_default_model
 from basemode.usage import estimate_usage, usage_from_events
 
-from .basemode_adapter import continue_text, loom_observation
+from .basemode_adapter import loom_observation
 from .diagnostics import (
     ProviderDiagnostic,
     empty_response_diagnostic,

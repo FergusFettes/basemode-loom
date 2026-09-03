@@ -20,8 +20,8 @@ async def test_cli_streams_supply_loom_observation(monkeypatch) -> None:
         observations.append(kwargs["observation"])
         yield 0, " branch"
 
-    monkeypatch.setattr("basemode_loom.basemode_adapter.continue_text", fake_continue)
-    monkeypatch.setattr("basemode_loom.basemode_adapter.branch_text", fake_branch)
+    monkeypatch.setattr("basemode.continue_.continue_text", fake_continue)
+    monkeypatch.setattr("basemode.continue_.branch_text", fake_branch)
 
     await _stream_one("prefix", "model", 10, 0.9, None)
     await _stream_branches("prefix", "model", 1, 10, 0.9, None)

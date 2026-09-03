@@ -1,7 +1,6 @@
 """Per-user thumbs up/down for models, for the HTTP API.
 
-Ratings live in basemode's shared model-evidence database, with older basemode
-releases falling back to ``~/.config/basemode/auth.json``. They do not live in
+Ratings live in basemode's private user configuration. They do not live in
 this project's corpus database. They belong to the user, not to a tree: a
 corpus can be swapped with ``--db``, exported, and shared, and a thumb should
 survive all three and be visible to the ``basemode`` CLI and the loom TUI too.
@@ -13,7 +12,13 @@ nothing about generation changes.
 
 from __future__ import annotations
 
-from basemode.keys import RATING_DOWN, RATING_UP
+from basemode.keys import (
+    RATING_DOWN,
+    RATING_UP,
+    get_model_rating,
+    list_model_ratings,
+    set_model_rating,
+)
 
 from .model_resolver import resolve_model_id
 
@@ -32,11 +37,11 @@ def is_valid_rating(rating: object) -> bool:
 
 
 def list_ratings() -> dict[str, int]:
-    return _rating_api()[2]()
+    return list_model_ratings()
 
 
 def get_rating(model: str) -> int | None:
-    return _rating_api()[1](resolve_model_id(model))
+    return get_model_rating(resolve_model_id(model))
 
 
 def set_rating(model: str, rating: int | None) -> tuple[str, int | None]:
@@ -46,22 +51,5 @@ def set_rating(model: str, rating: int | None) -> tuple[str, int | None]:
     set as `gpt-4o-mini` and one set as `openai/gpt-4o-mini` are one thumb.
     """
     resolved = resolve_model_id(model)
-    _rating_api()[0](resolved, rating)
+    set_model_rating(resolved, rating)
     return resolved, rating
-
-
-def _rating_api():
-    """Prefer shared evidence, retaining compatibility with older basemode."""
-    try:
-        from basemode.evidence import (
-            get_model_rating,
-            list_model_ratings,
-            set_model_rating,
-        )
-    except (ImportError, AttributeError):
-        from basemode.keys import (
-            get_model_rating,
-            list_model_ratings,
-            set_model_rating,
-        )
-    return set_model_rating, get_model_rating, list_model_ratings

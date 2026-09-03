@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
-from basemode import health
 from basemode.exceptions import EmptyCompletionError
+from basemode.failure_taxonomy import classify_error, error_details
 
 
 @dataclass(frozen=True)
@@ -20,18 +20,15 @@ class ProviderDiagnostic:
 def provider_diagnostic(error: BaseException) -> ProviderDiagnostic:
     """Classify a provider failure, and give it an ID a user can quote.
 
-    Categories come from `basemode.health.classify_error`, so the label shown
-    in the UI is the same label recorded against the model's health.
+    Categories come from Basemode's public failure taxonomy, so user-facing
+    diagnostics use the same labels as its authoritative call ledger.
     """
     if isinstance(error, EmptyCompletionError):
         return ProviderDiagnostic(
             uuid.uuid4().hex, "empty_response", None, error.finish_reason
         )
-    category, status = health.classify_error(error)
-    extract_details = getattr(health, "error_details", None)
-    error_code, error_param = (
-        extract_details(error) if callable(extract_details) else (None, None)
-    )
+    category, status = classify_error(error)
+    error_code, error_param = error_details(error)
     return ProviderDiagnostic(
         uuid.uuid4().hex,
         category,

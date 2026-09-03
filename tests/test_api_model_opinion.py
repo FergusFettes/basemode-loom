@@ -21,12 +21,23 @@ ALLOWED = "https://grove.example.com"
 
 @pytest.fixture(autouse=True)
 def isolated_key_store(tmp_path, monkeypatch):
-    """Isolate both the legacy auth file and current shared evidence store."""
+    """Isolate the private Basemode user configuration."""
     auth_file = tmp_path / "auth.json"
     monkeypatch.setattr("basemode.keys._CONFIG_DIR", tmp_path)
     monkeypatch.setattr("basemode.keys._AUTH_FILE", auth_file)
-    monkeypatch.setattr("basemode.evidence._DB_FILE", tmp_path / "evidence.sqlite")
     return auth_file
+
+
+def _record_outcome(model: str, *, ok: bool, error: Exception | None = None) -> None:
+    from basemode import ObservationContext
+    from basemode.observations import Operation
+
+    operation = Operation(model, "system", "explicit", ObservationContext())
+    attempt = operation.begin_attempt("initial")
+    if ok:
+        attempt.saw_content("generated")
+    attempt.finish("success" if ok else "failure", error)
+    operation.finish("success" if ok else "failure", returned_content=ok)
 
 
 def _client(tmp_path, config: Config | None = None) -> TestClient:
@@ -53,10 +64,10 @@ def test_a_thumb_is_stored_under_the_resolved_model_id(tmp_path, isolated_key_st
             "openai/gpt-4o-mini": 1
         }
 
-    from basemode.evidence import list_model_ratings
+    from basemode.keys import list_model_ratings
 
     assert list_model_ratings() == {"openai/gpt-4o-mini": 1}
-    assert not isolated_key_store.exists()
+    assert isolated_key_store.exists()
 
 
 def test_reading_one_rating_normalizes_the_model_id(tmp_path) -> None:
@@ -159,25 +170,24 @@ def test_health_is_empty_until_something_has_been_generated(tmp_path) -> None:
 
 
 def test_health_reports_recorded_outcomes(tmp_path) -> None:
-    from basemode import health
+    class RateLimited(RuntimeError):
+        status_code = 429
 
-    health.record_outcome("openai/gpt-4o-mini", ok=True)
-    health.record_outcome("openai/gpt-4o-mini", ok=False, category="rate_limit")
+    _record_outcome("openai/gpt-4o-mini", ok=True)
+    _record_outcome("openai/gpt-4o-mini", ok=False, error=RateLimited())
 
     with _client(tmp_path) as client:
         body = client.get("/api/models/health").json()
 
     observed = body["health"]["openai/gpt-4o-mini"]
     assert observed["attempts"] == 2
-    assert observed["failures"] == 1
-    assert observed["failure_rate"] == 0.5
-    assert observed["categories"] == {"rate_limit": 1}
+    assert observed["successful_operations"] == 1
+    assert observed["logical_success_rate"] == 0.5
+    assert observed["failures"] == {"rate_limit": 1}
 
 
 def test_health_for_one_model_normalizes_the_id(tmp_path) -> None:
-    from basemode import health
-
-    health.record_outcome("openai/gpt-4o-mini", ok=True)
+    _record_outcome("openai/gpt-4o-mini", ok=True)
 
     with _client(tmp_path) as client:
         body = client.get("/api/models/health", params={"model": "gpt-4o-mini"}).json()
@@ -265,9 +275,7 @@ def test_performance_report_is_cached_for_repeat_reads(tmp_path, monkeypatch) ->
 
 
 def test_the_model_listing_carries_health(tmp_path) -> None:
-    from basemode import health
-
-    health.record_outcome("openai/gpt-4o-mini", ok=False, category="timeout")
+    _record_outcome("openai/gpt-4o-mini", ok=False, error=TimeoutError())
 
     with _client(tmp_path) as client:
         models = client.get(
@@ -282,17 +290,14 @@ def test_the_model_listing_carries_health(tmp_path) -> None:
 def test_a_health_window_narrows_the_breakdown(tmp_path) -> None:
     from datetime import UTC, datetime, timedelta
 
-    from basemode import health
+    from basemode import observations
 
-    health.record_outcome("openai/gpt-4o-mini", ok=False, category="timeout")
+    _record_outcome("openai/gpt-4o-mini", ok=False, error=TimeoutError())
     old = (datetime.now(UTC) - timedelta(days=10)).isoformat()
-    with health._connect() as conn:
-        conn.execute("UPDATE model_events SET at = ?", (old,))
+    with observations._connect() as conn:
+        conn.execute("UPDATE call_operations SET started_at = ?", (old,))
 
     with _client(tmp_path) as client:
         body = client.get("/api/models/health", params={"days": 7}).json()
 
-    observed = body["health"]["openai/gpt-4o-mini"]
-    assert observed["failures"] == 1
-    assert observed["categories"] == {}
-    assert observed["recent_attempts"] == 0
+    assert body == {"health": {}}

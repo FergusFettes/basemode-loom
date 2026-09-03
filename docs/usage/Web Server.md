@@ -465,12 +465,10 @@ or shared.
 
 ### Observed model health
 
-A rating is an opinion; health is the record. Every generated branch is
-recorded against the model it ran on — whether it produced usable text, and
-if not, how it failed — in basemode's `~/.config/basemode/health.sqlite`. A
-branch counts as a failure when the provider errors, when it returns nothing,
-and when what it returned normalizes away to whitespace, which is a case only
-the loom session can see.
+A rating is an opinion; health is the record. Basemode records every generated
+branch as a logical operation and each physical provider request as an attempt
+in its content-free `observations.sqlite` ledger. Basemode, rather than Loom,
+owns success semantics and failure classification.
 
 ```
 GET /api/models/health
@@ -481,19 +479,20 @@ GET /api/models/health?model=gpt-4o-mini&days=7
 {
   "health": {
     "openai/gpt-4o-mini": {
-      "model": "openai/gpt-4o-mini",
+      "operational_status": "healthy",
+      "rules_version": 1,
+      "operations": 84,
+      "successful_operations": 75,
+      "logical_success_rate": 0.8929,
+      "initial_attempts": 84,
+      "successful_initial_attempts": 74,
+      "recovered_operations": 1,
       "attempts": 84,
-      "successes": 75,
-      "failures": 9,
-      "failure_rate": 0.1071,
-      "last_category": "rate_limit",
-      "last_status": 429,
-      "last_failure_at": "2026-08-23T13:41:02.517841+00:00",
-      "window_days": 7,
-      "recent_attempts": 31,
-      "recent_failures": 2,
-      "recent_failure_rate": 0.0645,
-      "categories": {"rate_limit": 2}
+      "failures": {"rate_limit": 2},
+      "account_failures": 0,
+      "source_counts": {"loom": 84},
+      "window_start": "2026-08-27T13:41:02.517841+00:00",
+      "window_end": "2026-09-03T13:41:02.517841+00:00"
     }
   }
 }
@@ -501,11 +500,9 @@ GET /api/models/health?model=gpt-4o-mini&days=7
 
 `model` is normalized the way generation normalizes it, and a model that has
 never been generated with is simply absent rather than a `404`; a blank
-`model` is `422 empty_model`. All-time totals are kept indefinitely, while
-the category breakdown comes from an event log pruned after 30 days, so a
-`days` window never reaches further back than that.
+`model` is `422 empty_model`. Supplying `days` windows the whole projection.
 
-Entries from `GET /api/models` carry the same record in a `health` field
+Entries from `GET /api/models` carry a compact projection in a `health` field
 (`null` for a model never used); pass `health_days=` there to window it. The
 failure categories match the `category` on a `generation_error` WebSocket
 message, so a UI can label a live failure and the history with one vocabulary.

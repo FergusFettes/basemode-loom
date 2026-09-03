@@ -6,6 +6,8 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.7.14 - 2026-09-03
+
 ### Added
 
 - `GET /api/version` reports the installed `basemode` and `basemode-loom`
@@ -59,6 +61,15 @@ under Unreleased.
   plus per-model flag counts weighed against how much that model was used.
 
 ### Changed
+
+- Loom now identifies every Basemode continuation with a typed, content-free
+  observation containing only the source name and installed Loom version.
+  Basemode owns provider attempts, health classification, and public call
+  evidence contribution; Loom no longer writes duplicate endpoint outcomes.
+
+- Removed Loom's `publish-evidence` corpus-aggregation command. Flags, edits,
+  trees, nodes, prompts, and generated text remain local product data and are
+  not part of Basemode's core call-observation ledger.
 
 - The built-in default plan is now `zai/glm-5.1`, `openai/gpt-5.4`,
   `deepinfra/deepseek-ai/deepseek-v4-flash-0731` and
