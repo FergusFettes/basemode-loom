@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -202,7 +202,7 @@ wheels = [
 
 [[package]]
 name = "basemode"
-version = "0.1.36"
+version = "0.1.46"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -212,14 +212,14 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/94/d701562080ee24d4749a64e3dda5da51490b60053435238b02585c6846fc/basemode-0.1.36.tar.gz", hash = "sha256:70fd7759843589720c9058b7e23ea9de69a0c630a15feb1271b7856b779afa5c", size = 1111117, upload-time = "2026-09-03T19:48:03.871Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f7/b4/0c422b22f23da390fb28ea47f53e9de6bb1385508e4af7bed1aaeac80311/basemode-0.1.46.tar.gz", hash = "sha256:5817b2d1b893d54a8cd59933e2ad5519916216b3164c25ded23deca3e3618cd3", size = 1106114, upload-time = "2026-09-04T18:37:17.747Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/5f/654ed84a937caf83d5f418da7de6860dad069a7959f6a6953dacf53c9f25/basemode-0.1.36-py3-none-any.whl", hash = "sha256:5d1811bcaa46c29af74bd11e4b250fc34d926b3dfbe66ca7b9a9a99a0ed3119a", size = 869328, upload-time = "2026-09-03T19:48:02.402Z" },
+    { url = "https://files.pythonhosted.org/packages/62/11/27bd86c1f1ba1922fd8478630c51e3e6b416b3eaf24690cba498c0aac684/basemode-0.1.46-py3-none-any.whl", hash = "sha256:5d120688443d6c807b2d14a5ec1724ccb155e2ca668594a6138e4224fe3ff150", size = 859823, upload-time = "2026-09-04T18:37:16.458Z" },
 ]
 
 [[package]]
 name = "basemode-loom"
-version = "0.7.14"
+version = "0.7.15"
 source = { editable = "." }
 dependencies = [
     { name = "basemode" },
@@ -252,7 +252,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "basemode", specifier = ">=0.1.36" },
+    { name = "basemode", specifier = ">=0.1.46" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "mlx-embeddings", marker = "extra == 'embed-mlx'", specifier = ">=0.0.3" },
@@ -2819,7 +2819,7 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
+    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/7a/97/5a3609c4f8d58b039179648e62dd220f89864f56f7357f5d4f45c29eb2cc/scipy-1.17.1.tar.gz", hash = "sha256:95d8e012d8cb8816c226aef832200b1d45109ed4464303e997c5b13122b297c0", size = 30573822, upload-time = "2026-02-23T00:26:24.851Z" }
 wheels = [
@@ -2898,7 +2898,7 @@ resolution-markers = [
     "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
 ]
 dependencies = [
-    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "numpy", version = "2.5.0", source = { registry = "https://pypi.org/simple" } },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a7/25/c2700dfaf6442b4effaa91af24ebce5dc9d31bb4a69706313aae70d72cd0/scipy-1.18.0.tar.gz", hash = "sha256:67b2ad2ad54c72ca6d04975a9b2df8c3638c34ddd5b28738e94fc2b57929d378", size = 30774447, upload-time = "2026-06-19T15:01:43.456Z" }
 wheels = [
