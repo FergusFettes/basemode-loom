@@ -12,6 +12,23 @@ on:
         required: false
         default: false
         type: boolean
+  workflow_call:
+    inputs:
+      release_version:
+        description: >-
+          Version another workflow has already committed and wants released.
+          Must match pyproject.toml at `ref`, which is checked rather than
+          trusted. Supplying it is what marks a run as delegated: a reusable
+          workflow sees the caller's event, so it cannot recognise itself.
+        required: true
+        type: string
+      ref:
+        description: >-
+          Commit to release. A caller that has just pushed must name its own
+          commit; the default checkout would be the SHA that started the run,
+          which predates the push.
+        required: true
+        type: string
 
 concurrency:
   group: release-${{ github.ref }}
@@ -34,6 +51,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
 
       - name: Set up uv
@@ -43,6 +61,7 @@ jobs:
         id: plan
         env:
           BEFORE: ${{ github.event.before }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         shell: bash
         run: |
           set -eo pipefail
@@ -51,7 +70,20 @@ jobs:
           publish=false
           tag=false
 
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          if [ -n "${RELEASE_VERSION}" ]; then
+            # Delegated by another workflow, which has already pushed the
+            # release commit. It cannot tag first: a tag pushed with the
+            # default token starts no run, so tagging is this workflow's job
+            # and happens only once the checks below have passed.
+            if [ "${RELEASE_VERSION}" != "${version}" ]; then
+              echo "Caller asked for ${RELEASE_VERSION}, but the checked-out" \
+                   "commit is ${version}." >&2
+              exit 1
+            fi
+            build=true
+            publish=true
+            tag=true
+          elif [ "${GITHUB_REF_TYPE}" = "tag" ]; then
             # An explicit tag push releases exactly what the tag points at.
             build=true
             publish=true
@@ -111,6 +143,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -159,6 +193,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Set up uv
         uses: astral-sh/setup-uv@v5

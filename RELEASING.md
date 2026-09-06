@@ -28,8 +28,14 @@ use a long-lived PyPI token. Run it manually with `workflow_dispatch` to test
 the complete build path without publishing; only a pushed tag enables the
 publish job.
 
-The weekly Basemode patch workflow prepares and atomically pushes its release
-commit and tag. The tag delegates publication to the same `Release` workflow.
+The weekly Basemode patch workflow pushes its release commit and then calls
+`Release` as a reusable workflow, passing the commit it just pushed. It cannot
+delegate through a tag: GitHub starts no workflow run from an event a job
+authenticated with the default `GITHUB_TOKEN` produced, so a commit or tag
+pushed from CI is invisible to `Release`'s own triggers. Calling it runs it
+within the same run, where that restriction does not apply, and it tags the
+commit once its checks pass. Anything else that releases from CI must call it
+the same way rather than pushing a tag and expecting it to fire.
 
 PyPI does not permit replacing a published version. If artifact validation or
 upload fails after a version has reached PyPI, prepare a new patch release.
