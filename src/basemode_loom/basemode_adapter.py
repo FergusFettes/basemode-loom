@@ -19,5 +19,4 @@ def loom_observation() -> ObservationContext:
     return ObservationContext(
         source="loom",
         source_version=_loom_version(),
-        contribution_eligible=False,
     )

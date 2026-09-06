@@ -4,6 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 from time import monotonic
 from typing import Annotated, Any, Literal
 
+from basemode.identity import canonical_id
 from basemode.observation_queries import endpoint_health, list_endpoint_health
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field, StrictInt
@@ -741,13 +742,17 @@ def model_health_report(
     Logical outcomes, physical attempts, failure classes, and derived
     operational status — the counterpart to a rating, which is only an
     opinion. Basemode owns this content-free projection over its call ledger.
+
+    Keys are basemode's canonical `provider/creator/model`, which is what
+    groups an endpoint for reporting. `model` is still asked for by wire ID,
+    the string generation is called with, and answered under the canonical one.
     """
     if model is not None:
         resolved = resolve_model_id(model.strip()) if model.strip() else ""
         if not resolved:
             raise HTTPException(status_code=422, detail={"code": "empty_model"})
         observed = endpoint_health(resolved, days=days)
-        return {"health": {resolved: observed} if observed else {}}
+        return {"health": {canonical_id(resolved): observed} if observed else {}}
     return {"health": list_endpoint_health(days=days)}
 
 

@@ -478,7 +478,7 @@ GET /api/models/health?model=gpt-4o-mini&days=7
 ```json
 {
   "health": {
-    "openai/gpt-4o-mini": {
+    "openai/openai/gpt-4o-mini": {
       "operational_status": "healthy",
       "rules_version": 1,
       "operations": 84,
@@ -498,9 +498,13 @@ GET /api/models/health?model=gpt-4o-mini&days=7
 }
 ```
 
-`model` is normalized the way generation normalizes it, and a model that has
-never been generated with is simply absent rather than a `404`; a blank
-`model` is `422 empty_model`. Supplying `days` windows the whole projection.
+Keys are basemode's canonical `provider/creator/model` — the identity that
+groups an endpoint for reporting, derived from the wire ID and never sent to a
+provider. `model` is still supplied as the wire ID, normalized the way
+generation normalizes it, and answered under the canonical one, so the two
+forms of this endpoint agree. A model that has never been generated with is
+simply absent rather than a `404`; a blank `model` is `422 empty_model`.
+Supplying `days` windows the whole projection.
 
 Entries from `GET /api/models` carry a compact projection in a `health` field
 (`null` for a model never used); pass `health_days=` there to window it. The

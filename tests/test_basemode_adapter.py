@@ -11,6 +11,5 @@ def test_loom_observation_contains_only_allow_listed_provenance(monkeypatch) -> 
     assert observation == ObservationContext(
         source="loom",
         source_version="1.2.3",
-        contribution_eligible=False,
     )
     assert observation.verification_probe_id is None

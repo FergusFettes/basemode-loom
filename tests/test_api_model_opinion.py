@@ -179,20 +179,33 @@ def test_health_reports_recorded_outcomes(tmp_path) -> None:
     with _client(tmp_path) as client:
         body = client.get("/api/models/health").json()
 
-    observed = body["health"]["openai/gpt-4o-mini"]
+    observed = body["health"]["openai/openai/gpt-4o-mini"]
     assert observed["attempts"] == 2
     assert observed["successful_operations"] == 1
     assert observed["logical_success_rate"] == 0.5
     assert observed["failures"] == {"rate_limit": 1}
 
 
-def test_health_for_one_model_normalizes_the_id(tmp_path) -> None:
+def test_health_for_one_model_answers_under_the_canonical_id(tmp_path) -> None:
+    """A wire ID goes in; basemode's canonical reporting ID comes back."""
     _record_outcome("openai/gpt-4o-mini", ok=True)
 
     with _client(tmp_path) as client:
         body = client.get("/api/models/health", params={"model": "gpt-4o-mini"}).json()
 
-    assert list(body["health"]) == ["openai/gpt-4o-mini"]
+    assert list(body["health"]) == ["openai/openai/gpt-4o-mini"]
+
+
+def test_health_keys_agree_between_the_list_and_single_model_forms(tmp_path) -> None:
+    _record_outcome("openai/gpt-4o-mini", ok=True)
+
+    with _client(tmp_path) as client:
+        listed = client.get("/api/models/health").json()["health"]
+        single = client.get(
+            "/api/models/health", params={"model": "openai/gpt-4o-mini"}
+        ).json()["health"]
+
+    assert list(listed) == list(single) == ["openai/openai/gpt-4o-mini"]
 
 
 def test_health_for_an_unused_model_is_empty_rather_than_404(tmp_path) -> None:

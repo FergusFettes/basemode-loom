@@ -6,11 +6,39 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.8.0 - 2026-09-06
+
+### Fixed
+
+- Generation worked again on Basemode 0.1.46 and newer. 0.7.15 raised its
+  Basemode floor to a release whose `ObservationContext` had dropped the
+  `contribution_eligible` flag — contribution is Basemode's own persisted
+  preference, not something a caller asserts per call — while Loom still passed
+  it, so constructing the provenance for any continuation raised `TypeError`
+  and every generation path failed. Loom now sends source and source version
+  only. Anyone on 0.7.15 should upgrade.
+
+### Changed
+
+- **Breaking.** `GET /api/models/health` keys its results by Basemode's
+  canonical `provider/creator/model` rather than the wire ID, so
+  `openai/gpt-4o-mini` is now reported as `openai/openai/gpt-4o-mini`. Basemode
+  0.1.47 identifies an endpoint by who made the model, which is what groups the
+  same model across the resellers that serve it; a client that looked health up
+  by wire ID must derive the canonical ID (`basemode.identity.canonical_id`) or
+  read the `health` field on `GET /api/models`, which is still keyed per entry.
+  The `?model=` form is unchanged in what it accepts — a wire ID, normalized
+  the way generation normalizes it — and now answers under the canonical ID
+  too, so the two forms of the endpoint no longer disagree.
+
+- Require Basemode 0.1.47 or newer.
+
 ## 0.7.15 - 2026-09-05
 
 ### Changed
 
 - Require Basemode 0.1.46 or newer.
+
 ## 0.7.14 - 2026-09-03
 
 ### Added
