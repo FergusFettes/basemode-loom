@@ -13,6 +13,15 @@ under Unreleased.
   samples give sibling replies). Chats live in a separate `chats.sqlite`, so
   ordinary loom trees and the active node are unaffected. Requires Basemode
   0.1.49 for `chat_text`. `chat -l` lists chats and `chat -r ID` resumes one.
+- `basemode-loom index`: build an FTS5 keyword index (`nodes_fts`) for any
+  loom or chat database, so the tree picker's keyword search works outside
+  prebuilt corpora. `--incremental` tops it up.
+
+### Changed
+
+- Log lines no longer print to the terminal. INFO logging (including the
+  "logging initialized" line on every command) goes only to `loom.log`;
+  warnings and errors still reach stderr.
 
 ## 0.8.1 - 2026-09-12
 

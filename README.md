@@ -64,6 +64,9 @@ The TUI tree picker (`Tab`) supports live metadata filtering, category/domain/
 source/model facets, ID lookup, FTS5 keyword search, and semantic search when
 the selected database contains a compatible vector index.
 
+Keyword search needs an FTS5 index. Corpora may ship with one; build it for
+any loom or chat database with `basemode-loom index [--db PATH] [--incremental]`.
+
 Guardian Angel corpora use the optional MLX search dependencies:
 
 ```bash

@@ -199,6 +199,29 @@ The HTTP API exposes the same active-database operation as
 `POST /api/embeddings`; `GET /api/embeddings` reports its current model,
 dimension, and vector count. Both operations are included in `/openapi.json`.
 
+### `index`
+
+Build an FTS5 keyword index (`nodes_fts`) inside the selected database, so the
+tree picker's keyword search works on ordinary loom and chat databases, not
+only on prebuilt corpora. No extra dependencies.
+
+```bash
+basemode-loom index
+basemode-loom index --db ~/.local/share/basemode/chats.sqlite
+basemode-loom index --db ~/.local/share/basemode/chats.sqlite --incremental
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--min-chars` | `1` | Skip shorter node segments |
+| `--incremental` | `false` | Index new nodes and prune deleted ones instead of rebuilding |
+| `--db` | default DB | Database to update |
+
+Like the vector index it is an explicit projection: loom does not update it as
+you generate, so re-run with `--incremental` to make new nodes searchable. Text
+edited in place is only picked up by a full rebuild. An existing `nodes_fts` of
+a different shape (built by another tool) is refused rather than replaced.
+
 ### `stats`
 
 Show quantitative statistics for a tree.

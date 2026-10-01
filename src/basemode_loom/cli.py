@@ -509,6 +509,38 @@ def loom_embed(
     )
 
 
+@app.command("index")
+def loom_index(
+    db: Annotated[
+        Path | None, typer.Option("--db", help="SQLite generation database path")
+    ] = None,
+    min_chars: Annotated[
+        int, typer.Option("--min-chars", help="Skip nodes shorter than this")
+    ] = 1,
+    incremental: Annotated[
+        bool,
+        typer.Option(
+            "--incremental",
+            help="Index new nodes and prune deleted ones instead of rebuilding",
+        ),
+    ] = False,
+) -> None:
+    """Build an in-database FTS5 keyword index over node text."""
+    from .retrieval.keyword import build_fts_index
+
+    store = GenerationStore(db)
+    try:
+        added = build_fts_index(
+            store.db_path, min_chars=min_chars, incremental=incremental
+        )
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc)) from exc
+    scope = "new node(s)" if incremental else "node(s)"
+    console.print(
+        f"[dim]Indexed {added:,} {scope} for keyword search ({store.db_path})[/dim]"
+    )
+
+
 @app.command("stats")
 def loom_stats(
     node_id: Annotated[
