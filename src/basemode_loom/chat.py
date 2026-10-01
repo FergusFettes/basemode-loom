@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .logging_utils import get_logger
 from .model_resolver import resolve_model_id
 from .store import GenerationStore, Node
 
@@ -35,6 +36,8 @@ USER = "user"
 ASSISTANT = "assistant"
 
 _NAME_CHARS = 60
+
+log = get_logger(__name__)
 
 
 def default_chat_db_path() -> Path:
@@ -275,6 +278,28 @@ async def reply(
     if saved:
         _checkout(store, saved[0])
     return saved, failures
+
+
+def refresh_keyword_index(store: GenerationStore) -> None:
+    """Top up the FTS5 index after a turn, if this database has one.
+
+    Chats are searched in the tree picker like any loom tree; an index that
+    lags every new turn would make the latest chats unfindable. A database
+    without an index (or with a foreign one) is left alone, and a failure
+    here never costs the reply that was just saved.
+    """
+    import sqlite3
+    from contextlib import closing
+
+    from .retrieval.keyword import _EXPECTED_COLUMNS, build_fts_index, fts_columns
+
+    try:
+        with closing(sqlite3.connect(store.db_path)) as conn:
+            if fts_columns(conn) != _EXPECTED_COLUMNS:
+                return
+        build_fts_index(store.db_path, incremental=True)
+    except Exception:
+        log.warning("chat keyword index top-up failed", exc_info=True)
 
 
 def _checkout(store: GenerationStore, node: Node) -> None:

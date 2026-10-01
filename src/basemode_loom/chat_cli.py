@@ -126,6 +126,7 @@ def loom_chat(
         # from the last real reply instead of gluing onto a dead turn.
         chat.discard_turn(store, user_turn)
         raise typer.Exit(1)
+    chat.refresh_keyword_index(store)
     if len(saved) > 1:
         _err.print(
             f"[dim]{len(saved)} replies saved; continuing from branch 1 "

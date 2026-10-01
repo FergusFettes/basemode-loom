@@ -86,6 +86,8 @@ side by side; the conversation continues from reply 1 unless you pick another
 with `-b`. A send that no model answered is discarded, so the next `-c` carries
 on from the last real reply. `-c` follows the most recently touched chat:
 resuming one with `-r`, or navigating it in `view`, makes it the latest.
+If the chat database has a keyword index (see `index`), each reply tops it up,
+so new turns are searchable straight away.
 
 Chats are kept in their own database,
 `~/.local/share/basemode/chats.sqlite` (`BASEMODE_CHAT_DB` overrides), so they

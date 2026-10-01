@@ -6,6 +6,8 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.8.1 - 2026-10-01
+
 ### Added
 
 - `basemode-loom chat`: plain chat with any basemode model, stored as a loom
@@ -15,7 +17,8 @@ under Unreleased.
   0.1.49 for `chat_text`. `chat -l` lists chats and `chat -r ID` resumes one.
 - `basemode-loom index`: build an FTS5 keyword index (`nodes_fts`) for any
   loom or chat database, so the tree picker's keyword search works outside
-  prebuilt corpora. `--incremental` tops it up.
+  prebuilt corpora. `--incremental` tops it up. `chat` keeps an existing
+  chat index current after every reply.
 
 ### Changed
 

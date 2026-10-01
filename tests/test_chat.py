@@ -243,3 +243,29 @@ def test_cli_chat_resume_reports_an_unknown_chat(chat_db) -> None:
 
     assert result.exit_code == 1
     assert "No chat matches" in result.output
+
+
+def test_cli_chat_keeps_an_existing_keyword_index_fresh(chat_db, fake_chat) -> None:
+    from basemode_loom.retrieval import KeywordBackend
+    from basemode_loom.retrieval.keyword import build_fts_index
+
+    _calls, scripts = fake_chat
+    assert runner.invoke(app, ["chat", "hello", "-m", "x/y"]).exit_code == 0
+    build_fts_index(chat_db)
+    scripts["x/y"] = ["puffins nest on Skomer"]
+
+    assert runner.invoke(app, ["chat", "-c", "birds?", "-m", "x/y"]).exit_code == 0
+
+    store = GenerationStore(chat_db)
+    assert KeywordBackend(store).search("puffins")
+
+
+def test_cli_chat_does_not_create_a_keyword_index(chat_db, fake_chat) -> None:
+    from contextlib import closing
+
+    from basemode_loom.retrieval.keyword import fts_columns
+
+    assert runner.invoke(app, ["chat", "hello", "-m", "x/y"]).exit_code == 0
+
+    with closing(GenerationStore(chat_db).connect()) as conn:
+        assert fts_columns(conn) is None
