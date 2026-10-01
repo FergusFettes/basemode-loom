@@ -46,6 +46,16 @@ The store tracks two pieces of ephemeral state:
 
 This means when you navigate back to a parent and then forward again, you return to the same child you were on before — just like a git checkout.
 
+## Chat trees
+
+`basemode-loom chat` stores conversations with the same structure. The tree's
+metadata carries `"mode": "chat"`, each node is one turn tagged
+`metadata.role` (`user` or `assistant`), and the tree's context node is the
+system prompt. Several replies to a user turn are sibling assistant nodes.
+Consecutive nodes with the same role form a single message. Assistant nodes
+record `strategy: "chat"`, plus usage and timing metadata like generated loom
+nodes.
+
 ## Example tree
 
 ```

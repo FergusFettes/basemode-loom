@@ -51,6 +51,44 @@ Uses the same model/settings as the active node's tree unless overridden.
 | `--show-strategy` / `--show-usage` / `--show-cost` | Print generation diagnostics |
 | `--db` | Use a custom SQLite database path |
 
+## Chat
+
+### `chat`
+
+Plain chat with any basemode model, stored as a loom tree: every turn is a
+node, every reply a branch.
+
+```bash
+basemode-loom chat "pick a scottish island" -s "be terse"   # new chat
+basemode-loom chat -c "how many people live there?"         # continue it
+basemode-loom chat -c "now as a haiku" -m claude-haiku-4-5 -m groq/openai/gpt-oss-120b
+basemode-loom chat -c -b 2                                   # switch to reply 2, print the chat
+cat notes.md | basemode-loom chat "summarise this"
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `-c`, `--continue` | `false` | Continue the most recent chat; with no message, print it |
+| `-b`, `--branch` | — | With `-c`: switch to sibling reply N of the last turn first |
+| `-m`, `--model` | stored basemode default | Model to answer; repeat to ask several side by side |
+| `-n`, `--branches` | `1` | Replies per model |
+| `-s`, `--system` | — | System prompt (new chats only; stored as the tree context) |
+| `-M`, `--max-tokens` | `4096` | Max output tokens per reply |
+| `-t`, `--temperature` | `0.7` | Sampling temperature |
+| `--db` | `chats.sqlite` | Chat database |
+
+Piped or redirected stdin is prepended to the message. Several replies stream
+side by side; the conversation continues from reply 1 unless you pick another
+with `-b`. A send that no model answered is discarded, so the next `-c` carries
+on from the last real reply.
+
+Chats are kept in their own database,
+`~/.local/share/basemode/chats.sqlite` (`BASEMODE_CHAT_DB` overrides), so they
+never become loom's active node or appear in its tree picker. The format is
+ordinary loom data — see [[Tree Structure]] — so
+`basemode-loom view --db ~/.local/share/basemode/chats.sqlite` browses them,
+but generating in the TUI still does raw continuation.
+
 ## Navigation
 
 ### `view`

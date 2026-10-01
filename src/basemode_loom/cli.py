@@ -1466,3 +1466,7 @@ def _preview(text: str, limit: int = 80) -> str:
 
 def _format_float(value: float) -> str:
     return f"{value:.2f}"
+
+
+# Registers `chat` on `app`. Imported last because it uses helpers above.
+from . import chat_cli as chat_cli  # noqa: E402

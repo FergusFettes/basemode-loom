@@ -6,11 +6,20 @@ under Unreleased.
 
 ## Unreleased
 
+### Added
+
+- `basemode-loom chat`: plain chat with any basemode model, stored as a loom
+  tree flagged `mode: chat` (turns are nodes tagged by role, several models or
+  samples give sibling replies). Chats live in a separate `chats.sqlite`, so
+  ordinary loom trees and the active node are unaffected. Requires Basemode
+  0.1.49 for `chat_text`.
+
 ## 0.8.1 - 2026-09-12
 
 ### Changed
 
 - Require Basemode 0.1.48 or newer.
+
 ## 0.8.0 - 2026-09-06
 
 ### Fixed

@@ -32,6 +32,7 @@ Never print or commit provider credentials.
 | Persistence and tree model | `src/basemode_loom/store.py` | Changing SQLite schema, nodes, trees, or tree queries |
 | Session and generation | `src/basemode_loom/session.py` | Changing navigation, generation lifecycle, or session state |
 | Command-line interface | `src/basemode_loom/cli.py` | Adding or adjusting CLI commands |
+| Chat | `src/basemode_loom/chat.py`, `chat_cli.py` | Plain chat trees (`mode: chat`) answered via basemode's `chat_text`; kept apart from loom generation |
 | TUI | `src/basemode_loom/tui/` | Changing interactive exploration screens and widgets |
 | REST and WebSocket API | `src/basemode_loom/api/` | Adding endpoints or changing server behaviour |
 | Rendering | `src/basemode_loom/display.py` | Changing UI-agnostic text layout |

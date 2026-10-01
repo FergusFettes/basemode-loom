@@ -44,6 +44,19 @@ Useful commands:
 - `basemode-loom export|import`: move trees in/out as JSON/Markdown
 - `basemode-loom serve`: run REST/WebSocket API for frontend usage
 
+## Chat
+
+`basemode-loom chat` is a plain chat on the same tree structure: turns are
+nodes, and asking several models (or several samples) gives sibling replies.
+
+```bash
+basemode-loom chat "pick a scottish island" -s "be terse"
+basemode-loom chat -c "how many people live there?" -m claude-haiku-4-5 -m groq/openai/gpt-oss-120b
+basemode-loom chat -c -b 2      # carry on from the second reply
+```
+
+Chats live in their own `chats.sqlite`, separate from loom trees.
+
 ## Tree Search
 
 The TUI tree picker (`Tab`) supports live metadata filtering, category/domain/
