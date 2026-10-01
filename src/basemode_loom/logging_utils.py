@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,15 @@ def configure_logging(app_name: str = "basemode-loom") -> Path:
         logger.info("%s logging initialized: %s", app_name, path)
     else:
         if not _configured:
+            # loguru ships with a DEBUG-level stderr sink, which put "logging
+            # initialized" and every INFO line on the terminal of every
+            # command. Keep stderr for warnings and up; the file gets the rest.
+            try:
+                loguru_logger.remove(0)
+            except ValueError:
+                pass  # someone already replaced the default sink
+            else:
+                loguru_logger.add(sys.stderr, level="WARNING")
             loguru_logger.add(
                 path,
                 level="INFO",
