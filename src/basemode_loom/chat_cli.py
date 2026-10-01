@@ -6,6 +6,7 @@ import asyncio
 import os
 import stat
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Annotated
 
@@ -14,11 +15,12 @@ from basemode.keys import get_default_model
 from rich.columns import Columns
 from rich.console import Console
 from rich.live import Live
+from rich.table import Table
 from rich.text import Text
 
 from . import chat
 from .cli import _BRANCH_COLORS, app, console
-from .store import GenerationStore, Node
+from .store import AmbiguousNodeReference, GenerationStore, Node
 
 _err = Console(stderr=True)
 
@@ -37,6 +39,17 @@ def loom_chat(
             "--continue",
             help="Continue the most recent chat instead of a new one",
         ),
+    ] = False,
+    resume: Annotated[
+        str | None,
+        typer.Option(
+            "-r",
+            "--resume",
+            help="Continue a specific chat (or turn) by id or id prefix",
+        ),
+    ] = None,
+    list_: Annotated[
+        bool, typer.Option("-l", "--list", help="List chats, most recent first")
     ] = False,
     branch: Annotated[
         int | None,
@@ -68,9 +81,14 @@ def loom_chat(
     """Chat with a model; every turn is a node, every reply a branch.
 
     `chat "hi"` starts a new chat, `chat -c "and then?"` continues the latest
-    one, and `chat -c` alone prints it. Chats are kept apart from loom's own
-    trees (see --db).
+    one, and `chat -c` alone prints it. `chat -l` lists chats and
+    `chat -r ID` picks one up. Chats are kept apart from loom's own trees
+    (see --db).
     """
+    if list_:
+        _print_chat_list(GenerationStore(db or chat.default_chat_db_path()))
+        return
+    cont = cont or resume is not None
     text = "\n\n".join(p for p in (_read_piped_stdin().strip(), message) if p)
     if not text and not cont:
         console.print(ctx.get_help())
@@ -81,10 +99,7 @@ def loom_chat(
 
     store = GenerationStore(db or chat.default_chat_db_path())
     if cont:
-        current = chat.latest_chat_node(store)
-        if current is None:
-            _err.print("[red]No chat to continue yet.[/red]")
-            raise typer.Exit(1)
+        current = _resolve_target(store, resume)
         if branch is not None:
             current = _switch_branch(store, current, branch)
         if not text:
@@ -168,6 +183,53 @@ async def _stream_replies(
             temperature=temperature,
             on_token=on_token,
         )
+
+
+def _resolve_target(store: GenerationStore, resume: str | None) -> Node:
+    if resume is None:
+        current = chat.latest_chat_node(store)
+        if current is None:
+            _err.print("[red]No chat to continue yet.[/red]")
+            raise typer.Exit(1)
+        return current
+    try:
+        current = chat.resolve_chat(store, resume)
+    except AmbiguousNodeReference as exc:
+        _err.print(f"[red]{exc}[/red]", markup=True, highlight=False)
+        raise typer.Exit(1) from None
+    if current is None:
+        _err.print(f"[red]No chat matches {resume!r}.[/red]", highlight=False)
+        raise typer.Exit(1)
+    # Resuming makes it the latest chat, so a plain `-c` follows on from here.
+    store.set_active_node(current.id)
+    return current
+
+
+def _print_chat_list(store: GenerationStore) -> None:
+    chats = chat.list_chats(store)
+    if not chats:
+        console.print("[dim]No chats yet.[/dim]")
+        return
+    table = Table("", "ID", "Name", "Turns", "Replies", "Models", "Updated")
+    for index, summary in enumerate(chats):
+        table.add_row(
+            "*" if index == 0 else "",
+            summary.tree_id[:8],
+            Text(summary.name),
+            str(summary.turns),
+            str(summary.replies),
+            Text(", ".join(summary.models)),
+            _local_time(summary.updated_at),
+        )
+    console.print(table)
+
+
+def _local_time(stamp: str) -> str:
+    try:
+        when = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+    except ValueError:
+        return stamp
+    return when.astimezone().strftime("%Y-%m-%d %H:%M")
 
 
 def _switch_branch(store: GenerationStore, current: Node, branch: int) -> Node:

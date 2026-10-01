@@ -63,13 +63,17 @@ basemode-loom chat "pick a scottish island" -s "be terse"   # new chat
 basemode-loom chat -c "how many people live there?"         # continue it
 basemode-loom chat -c "now as a haiku" -m claude-haiku-4-5 -m groq/openai/gpt-oss-120b
 basemode-loom chat -c -b 2                                   # switch to reply 2, print the chat
+basemode-loom chat -l                                        # list chats, most recent first
+basemode-loom chat -r 297a "and another thing"               # continue an older chat by id prefix
 cat notes.md | basemode-loom chat "summarise this"
 ```
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `-c`, `--continue` | `false` | Continue the most recent chat; with no message, print it |
-| `-b`, `--branch` | — | With `-c`: switch to sibling reply N of the last turn first |
+| `-r`, `--resume` | — | Continue a specific chat by id or id prefix (a node id resumes from that exact turn) |
+| `-l`, `--list` | `false` | List chats: id, name, turns on the current path, replies, models, last updated |
+| `-b`, `--branch` | — | With `-c`/`-r`: switch to sibling reply N of the last turn first |
 | `-m`, `--model` | stored basemode default | Model to answer; repeat to ask several side by side |
 | `-n`, `--branches` | `1` | Replies per model |
 | `-s`, `--system` | — | System prompt (new chats only; stored as the tree context) |
@@ -80,7 +84,8 @@ cat notes.md | basemode-loom chat "summarise this"
 Piped or redirected stdin is prepended to the message. Several replies stream
 side by side; the conversation continues from reply 1 unless you pick another
 with `-b`. A send that no model answered is discarded, so the next `-c` carries
-on from the last real reply.
+on from the last real reply. `-c` follows the most recently touched chat:
+resuming one with `-r`, or navigating it in `view`, makes it the latest.
 
 Chats are kept in their own database,
 `~/.local/share/basemode/chats.sqlite` (`BASEMODE_CHAT_DB` overrides), so they

@@ -12,7 +12,7 @@ under Unreleased.
   tree flagged `mode: chat` (turns are nodes tagged by role, several models or
   samples give sibling replies). Chats live in a separate `chats.sqlite`, so
   ordinary loom trees and the active node are unaffected. Requires Basemode
-  0.1.49 for `chat_text`.
+  0.1.49 for `chat_text`. `chat -l` lists chats and `chat -r ID` resumes one.
 
 ## 0.8.1 - 2026-09-12
 

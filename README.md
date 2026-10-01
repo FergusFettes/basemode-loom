@@ -53,6 +53,7 @@ nodes, and asking several models (or several samples) gives sibling replies.
 basemode-loom chat "pick a scottish island" -s "be terse"
 basemode-loom chat -c "how many people live there?" -m claude-haiku-4-5 -m groq/openai/gpt-oss-120b
 basemode-loom chat -c -b 2      # carry on from the second reply
+basemode-loom chat -l           # list chats; resume one with `chat -r ID "..."`
 ```
 
 Chats live in their own `chats.sqlite`, separate from loom trees.

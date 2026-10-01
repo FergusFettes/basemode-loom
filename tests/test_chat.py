@@ -189,3 +189,57 @@ def test_cli_chat_never_touches_the_loom_database(chat_db, fake_chat, tmp_path) 
 
 def store_children_texts(db, node_id) -> list[str]:
     return [node.text for node in GenerationStore(db).children(node_id)]
+
+
+def test_list_chats_summarises_turns_replies_and_models(store, fake_chat) -> None:
+    import asyncio
+
+    older = chat.start_chat(store, "first chat")
+    asyncio.run(chat.reply(store, older.id, ["m/one", "m/two"]))
+    store.create_root("an ordinary loom tree")
+    newer = chat.start_chat(store, "second chat")
+
+    chats = chat.list_chats(store)
+
+    assert [c.name for c in chats] == ["second chat", "first chat"]
+    assert chats[0].current.id == newer.id
+    assert (chats[1].turns, chats[1].replies, chats[1].models) == (
+        2,
+        2,
+        ("m/one", "m/two"),
+    )
+
+
+def test_resolve_chat_accepts_tree_prefixes_and_rejects_loom_trees(store) -> None:
+    root = chat.start_chat(store, "hello")
+    loom_root = store.create_root("not a chat")
+
+    assert chat.resolve_chat(store, root.id[:6]).id == root.id
+    assert chat.resolve_chat(store, loom_root.id) is None
+    assert chat.resolve_chat(store, "ffffffffffff") is None
+
+
+def test_cli_chat_resume_continues_an_older_chat(chat_db, fake_chat) -> None:
+    calls, _scripts = fake_chat
+    assert runner.invoke(app, ["chat", "older chat", "-m", "x/y"]).exit_code == 0
+    older_id = chat.list_chats(GenerationStore(chat_db))[0].tree_id
+    assert runner.invoke(app, ["chat", "newer chat", "-m", "x/y"]).exit_code == 0
+
+    resumed = runner.invoke(app, ["chat", "-r", older_id[:8], "more", "-m", "x/y"])
+    assert resumed.exit_code == 0, resumed.output
+    assert calls[-1]["messages"][0] == {"role": "user", "content": "older chat"}
+
+    # Resuming made it the latest, so plain -c follows on from it.
+    assert runner.invoke(app, ["chat", "-c", "again", "-m", "x/y"]).exit_code == 0
+    assert calls[-1]["messages"][0] == {"role": "user", "content": "older chat"}
+
+    listed = runner.invoke(app, ["chat", "--list"])
+    assert listed.exit_code == 0
+    assert older_id[:8] in listed.output
+
+
+def test_cli_chat_resume_reports_an_unknown_chat(chat_db) -> None:
+    result = runner.invoke(app, ["chat", "-r", "deadbeef"])
+
+    assert result.exit_code == 1
+    assert "No chat matches" in result.output

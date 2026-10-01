@@ -103,6 +103,64 @@ def latest_chat_node(store: GenerationStore) -> Node | None:
     return None
 
 
+@dataclass(frozen=True)
+class ChatSummary:
+    tree_id: str
+    name: str
+    current: Node
+    turns: int
+    replies: int
+    models: tuple[str, ...]
+    updated_at: str
+
+
+def list_chats(store: GenerationStore) -> list[ChatSummary]:
+    """Every chat in the store, most recently touched first."""
+    summaries = []
+    for root in store.roots():
+        tree = store.tree_for_node(root.id)
+        if tree.metadata.get("mode") != CHAT_MODE:
+            continue
+        current = store.get(tree.current_node_id or root.id) or root
+        nodes = store.tree(root.id)
+        assistants = [node for node in nodes if node_role(node) == ASSISTANT]
+        summaries.append(
+            ChatSummary(
+                tree_id=tree.id,
+                name=tree.name or root.text[:_NAME_CHARS],
+                current=current,
+                turns=sum(
+                    1
+                    for message in chat_messages(store, current.id)
+                    if message["role"] != "system"
+                ),
+                replies=len(assistants),
+                models=tuple(sorted({n.model for n in assistants if n.model})),
+                updated_at=tree.updated_at,
+            )
+        )
+    summaries.sort(key=lambda summary: summary.updated_at, reverse=True)
+    return summaries
+
+
+def resolve_chat(store: GenerationStore, reference: str) -> Node | None:
+    """Resolve a chat or node id (prefixes allowed) to the node to continue from.
+
+    A tree or root id means wherever that chat was left; any other node id
+    means that exact turn, so an older branch can be picked up directly.
+    Returns None for unknown ids and for nodes outside chat trees. Raises
+    `AmbiguousNodeReference` when a prefix matches several nodes.
+    """
+    resolved = store.resolve_node_id(reference)
+    node = store.get(resolved) if resolved else None
+    if node is None or not is_chat_tree(store, node.id):
+        return None
+    if node.parent_id is None:
+        tree = store.tree_for_node(node.id)
+        node = store.get(tree.current_node_id or node.id) or node
+    return node
+
+
 def chat_messages(store: GenerationStore, node_id: str) -> list[dict[str, str]]:
     """The conversation up to and including ``node_id``, as chat messages.
 
