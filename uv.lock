@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.11"
 resolution-markers = [
     "python_full_version >= '3.14' and sys_platform == 'win32'",
@@ -202,7 +202,7 @@ wheels = [
 
 [[package]]
 name = "basemode"
-version = "0.1.49"
+version = "0.1.50"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -212,14 +212,14 @@ dependencies = [
     { name = "rich" },
     { name = "typer" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/03/25/a7810e7cc42b637f6dc92c19e858c41794d55005b294f8b5ea23183c09eb/basemode-0.1.49.tar.gz", hash = "sha256:6af92f4220b8fa426b7eb0a60024876710d0c29d8bb23a51bae97ca0f53b7611", size = 1208407, upload-time = "2026-10-01T21:04:35.467Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/83/36/dfcd11ff9d06f0dbf9b3bd7fadf0789009dccdc6a0ea775321ebc33fa408/basemode-0.1.50.tar.gz", hash = "sha256:759ee64ee5622f6d9cab5993881c790b6d9dbfb2e323fa6cb17f906c7551a5d1", size = 1212975, upload-time = "2026-10-01T21:38:50.115Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/86/7b/1354b41e710caed7ab27aebbd4299658bd0f2caa5d76bd8f4413eea47d25/basemode-0.1.49-py3-none-any.whl", hash = "sha256:e0d0745fdd9874b00795bc0474bc2d0c9bb4c259758de8023cf8b3eb93e0fbb5", size = 888094, upload-time = "2026-10-01T21:04:33.961Z" },
+    { url = "https://files.pythonhosted.org/packages/5b/80/5b2f5b38423a22ac6acdb1f36ef27d8063db87265b49cecbc3b6b50fdb2c/basemode-0.1.50-py3-none-any.whl", hash = "sha256:097beeccbf0a2d554ab4b74ba0665bc8252eb73237b64b46b70e409f8b668f3a", size = 890474, upload-time = "2026-10-01T21:38:48.716Z" },
 ]
 
 [[package]]
 name = "basemode-loom"
-version = "0.8.2"
+version = "0.8.3"
 source = { editable = "." }
 dependencies = [
     { name = "basemode" },
@@ -252,7 +252,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "basemode", specifier = ">=0.1.49" },
+    { name = "basemode", specifier = ">=0.1.50" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "loguru", specifier = ">=0.7.2" },
     { name = "mlx-embeddings", marker = "extra == 'embed-mlx'", specifier = ">=0.0.3" },

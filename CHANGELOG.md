@@ -6,6 +6,11 @@ under Unreleased.
 
 ## Unreleased
 
+## 0.8.3 - 2026-10-03
+
+### Changed
+
+- Require Basemode 0.1.50 or newer.
 ## 0.8.2 - 2026-10-01
 
 ### Added
